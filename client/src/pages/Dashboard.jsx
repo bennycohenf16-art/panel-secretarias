@@ -17,7 +17,7 @@ const fmtDate = (d) => {
 };
 const fmtTime = (t) => (t || '').slice(0, 5);
 const todayISO = () => new Date().toISOString().split('T')[0];
-const cleanPhone = (t) => (t || '').replace(/:[0-9]+@.*/, '').replace(/@.*/, '');
+const cleanPhone = (t) => (t || '').replace(/:[0-9]+(@.*)?$/, '').replace(/@.*$/, '');
 
 export default function Dashboard() {
   const nav = useNavigate();

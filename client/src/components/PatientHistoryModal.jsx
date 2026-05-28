@@ -17,7 +17,7 @@ export default function PatientHistoryModal({ telefono, onClose }) {
       .then(data => { setCitas(Array.isArray(data) ? data : []); setLoading(false); });
   }, [telefono]);
 
-  const clean = (t) => (t || '').replace(/:[0-9]+@.*/, '').replace(/@.*/, '');
+  const clean = (t) => (t || '').replace(/:[0-9]+(@.*)?$/, '').replace(/@.*$/, '');
 
   return (
     <div style={{
