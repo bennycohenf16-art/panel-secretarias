@@ -19,6 +19,9 @@ const pool = new Pool({
 const JWT_SECRET = process.env.JWT_SECRET || 'panel-jwt-secret-change-me';
 const FACTORY_SECRET = process.env.FACTORY_SECRET || 'factory-secret-change-me';
 
+// Wrapper — evita que un error async apague el servidor
+const h = fn => (req, res, next) => fn(req, res, next).catch(next);
+
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS doctors (
@@ -57,15 +60,15 @@ function auth(req, res, next) {
 }
 
 // ── Factory: crear cuenta de doctor ──────────────────────────────────────────
-app.post('/api/doctors', async (req, res) => {
+app.post('/api/doctors', h(async (req, res) => {
   const { factory_secret, name, email, password, bot_slug } = req.body;
   if (factory_secret !== FACTORY_SECRET)
     return res.status(401).json({ error: 'No autorizado' });
   if (!email || !password || !bot_slug)
     return res.status(400).json({ error: 'Faltan campos requeridos' });
+  const password_hash = await bcrypt.hash(password, 10);
+  const panel_token = crypto.randomBytes(32).toString('hex');
   try {
-    const password_hash = await bcrypt.hash(password, 10);
-    const panel_token = crypto.randomBytes(32).toString('hex');
     const r = await pool.query(
       'INSERT INTO doctors (name,email,password_hash,bot_slug,panel_token) VALUES ($1,$2,$3,$4,$5) RETURNING id,panel_token',
       [name, email, password_hash, bot_slug, panel_token]
@@ -73,22 +76,22 @@ app.post('/api/doctors', async (req, res) => {
     res.json({ ok: true, panel_token: r.rows[0].panel_token });
   } catch (e) {
     if (e.code === '23505') return res.status(400).json({ error: 'Email o bot ya registrado' });
-    res.status(500).json({ error: e.message });
+    throw e;
   }
-});
+}));
 
-// ── Factory: actualizar contraseña de doctor ─────────────────────────────────
-app.put('/api/doctors/password', async (req, res) => {
+// ── Factory: actualizar contraseña ────────────────────────────────────────────
+app.put('/api/doctors/password', h(async (req, res) => {
   const { factory_secret, email, password } = req.body;
   if (factory_secret !== FACTORY_SECRET)
     return res.status(401).json({ error: 'No autorizado' });
   const hash = await bcrypt.hash(password, 10);
   await pool.query('UPDATE doctors SET password_hash=$1 WHERE email=$2', [hash, email]);
   res.json({ ok: true });
-});
+}));
 
-// ── Autenticación ─────────────────────────────────────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
+// ── Login ─────────────────────────────────────────────────────────────────────
+app.post('/api/auth/login', h(async (req, res) => {
   const { email, password } = req.body;
   const r = await pool.query('SELECT * FROM doctors WHERE email=$1', [email.trim().toLowerCase()]);
   if (!r.rows.length) return res.status(401).json({ error: 'Credenciales incorrectas' });
@@ -97,10 +100,10 @@ app.post('/api/auth/login', async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
   const token = jwt.sign({ id: doc.id, name: doc.name, email: doc.email }, JWT_SECRET, { expiresIn: '14d' });
   res.json({ token, name: doc.name, email: doc.email });
-});
+}));
 
 // ── Webhook: bot envía cita nueva ─────────────────────────────────────────────
-app.post('/api/webhook', async (req, res) => {
+app.post('/api/webhook', h(async (req, res) => {
   const { token, nombre, telefono, fecha, hora, motivo } = req.body;
   if (!token) return res.status(401).json({ error: 'Token requerido' });
   const r = await pool.query('SELECT id FROM doctors WHERE panel_token=$1', [token]);
@@ -110,10 +113,10 @@ app.post('/api/webhook', async (req, res) => {
     [r.rows[0].id, nombre, telefono || '', fecha, hora, motivo || '', 'whatsapp']
   );
   res.json({ ok: true });
-});
+}));
 
 // ── Citas ─────────────────────────────────────────────────────────────────────
-app.get('/api/appointments', auth, async (req, res) => {
+app.get('/api/appointments', auth, h(async (req, res) => {
   const { fecha } = req.query;
   const params = [req.user.id];
   let where = 'doctor_id=$1';
@@ -123,28 +126,28 @@ app.get('/api/appointments', auth, async (req, res) => {
     params
   );
   res.json(r.rows);
-});
+}));
 
-app.get('/api/appointments/month', auth, async (req, res) => {
+app.get('/api/appointments/month', auth, h(async (req, res) => {
   const now = new Date();
   const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   const r = await pool.query(
-    `SELECT COUNT(*) AS total FROM appointments WHERE doctor_id=$1 AND fecha >= $2`,
+    'SELECT COUNT(*) AS total FROM appointments WHERE doctor_id=$1 AND fecha >= $2',
     [req.user.id, start]
   );
   res.json({ total: parseInt(r.rows[0].total) });
-});
+}));
 
-app.post('/api/appointments', auth, async (req, res) => {
+app.post('/api/appointments', auth, h(async (req, res) => {
   const { nombre, telefono, fecha, hora, motivo } = req.body;
   const r = await pool.query(
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     [req.user.id, nombre, telefono || '', fecha, hora, motivo || '', 'manual']
   );
   res.json(r.rows[0]);
-});
+}));
 
-app.put('/api/appointments/:id', auth, async (req, res) => {
+app.put('/api/appointments/:id', auth, h(async (req, res) => {
   const { nombre, telefono, fecha, hora, motivo, status } = req.body;
   const r = await pool.query(
     'UPDATE appointments SET nombre=$1,telefono=$2,fecha=$3,hora=$4,motivo=$5,status=$6 WHERE id=$7 AND doctor_id=$8 RETURNING *',
@@ -152,29 +155,35 @@ app.put('/api/appointments/:id', auth, async (req, res) => {
   );
   if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
   res.json(r.rows[0]);
-});
+}));
 
-app.patch('/api/appointments/:id/status', auth, async (req, res) => {
+app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   const { status } = req.body;
   await pool.query(
     'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3',
     [status, req.params.id, req.user.id]
   );
   res.json({ ok: true });
-});
+}));
 
-app.delete('/api/appointments/:id', auth, async (req, res) => {
+app.delete('/api/appointments/:id', auth, h(async (req, res) => {
   await pool.query('DELETE FROM appointments WHERE id=$1 AND doctor_id=$2', [req.params.id, req.user.id]);
   res.json({ ok: true });
-});
+}));
 
 // ── Historial de paciente ─────────────────────────────────────────────────────
-app.get('/api/patients/:telefono', auth, async (req, res) => {
+app.get('/api/patients/:telefono', auth, h(async (req, res) => {
   const r = await pool.query(
     'SELECT * FROM appointments WHERE doctor_id=$1 AND telefono=$2 ORDER BY fecha DESC, hora DESC',
     [req.user.id, req.params.telefono]
   );
   res.json(r.rows);
+}));
+
+// ── Manejo global de errores — evita que el servidor se apague ────────────────
+app.use((err, req, res, _next) => {
+  console.error('[error]', err.message);
+  res.status(500).json({ error: 'Error interno del servidor' });
 });
 
 // ── Serve React build ─────────────────────────────────────────────────────────
