@@ -94,6 +94,26 @@ app.post('/api/doctors/recover-token', h(async (req, res) => {
   res.json({ ok: true, panel_token: doc.panel_token });
 }));
 
+// ── Factory: reasignar cuenta existente por bot_slug (nueva email+pass) ───────
+app.post('/api/doctors/reassign', h(async (req, res) => {
+  const { factory_secret, bot_slug, name, email, password } = req.body;
+  if (factory_secret !== FACTORY_SECRET)
+    return res.status(401).json({ error: 'No autorizado' });
+  if (!bot_slug || !email || !password) return res.status(400).json({ error: 'Faltan campos' });
+  const r = await pool.query('SELECT * FROM doctors WHERE bot_slug=$1', [bot_slug]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Bot no encontrado' });
+  const hash = await bcrypt.hash(password, 10);
+  try {
+    await pool.query('UPDATE doctors SET email=$1, password_hash=$2, name=$3 WHERE bot_slug=$4',
+      [email.trim().toLowerCase(), hash, name || r.rows[0].name, bot_slug]);
+  } catch(e) {
+    if (e.code === '23505') return res.status(400).json({ error: 'Ese email ya está en uso por otro bot' });
+    throw e;
+  }
+  const updated = await pool.query('SELECT panel_token FROM doctors WHERE bot_slug=$1', [bot_slug]);
+  res.json({ ok: true, panel_token: updated.rows[0].panel_token });
+}));
+
 // ── Factory: actualizar contraseña ────────────────────────────────────────────
 app.put('/api/doctors/password', h(async (req, res) => {
   const { factory_secret, email, password } = req.body;
