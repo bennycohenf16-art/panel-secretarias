@@ -80,6 +80,20 @@ app.post('/api/doctors', h(async (req, res) => {
   }
 }));
 
+// ── Factory: recuperar panel_token de cuenta existente ───────────────────────
+app.post('/api/doctors/recover-token', h(async (req, res) => {
+  const { factory_secret, email, password } = req.body;
+  if (factory_secret !== FACTORY_SECRET)
+    return res.status(401).json({ error: 'No autorizado' });
+  if (!email || !password) return res.status(400).json({ error: 'Faltan campos' });
+  const r = await pool.query('SELECT * FROM doctors WHERE email=$1', [email.trim().toLowerCase()]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  const doc = r.rows[0];
+  const valid = await bcrypt.compare(password, doc.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Contraseña incorrecta' });
+  res.json({ ok: true, panel_token: doc.panel_token });
+}));
+
 // ── Factory: actualizar contraseña ────────────────────────────────────────────
 app.put('/api/doctors/password', h(async (req, res) => {
   const { factory_secret, email, password } = req.body;
