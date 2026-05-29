@@ -114,6 +114,16 @@ app.post('/api/doctors/reassign', h(async (req, res) => {
   res.json({ ok: true, panel_token: updated.rows[0].panel_token });
 }));
 
+// ── Factory: eliminar cuenta de doctor por bot_slug ──────────────────────────
+app.delete('/api/doctors/by-slug/:slug', h(async (req, res) => {
+  const { factory_secret } = req.body || {};
+  if (factory_secret !== FACTORY_SECRET)
+    return res.status(401).json({ error: 'No autorizado' });
+  const r = await pool.query('DELETE FROM doctors WHERE bot_slug=$1 RETURNING id', [req.params.slug]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  res.json({ ok: true, deleted: r.rows[0].id });
+}));
+
 // ── Factory: actualizar contraseña ────────────────────────────────────────────
 app.put('/api/doctors/password', h(async (req, res) => {
   const { factory_secret, email, password } = req.body;
