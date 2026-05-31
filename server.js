@@ -183,6 +183,9 @@ app.post('/api/auth/login', h(async (req, res) => {
 
 // ── Webhook: bot envía cita nueva ─────────────────────────────────────────────
 app.post('/api/webhook', h(async (req, res) => {
+  const secret = process.env.INTERNAL_WEBHOOK_TOKEN;
+  if (secret && req.headers['x-webhook-token'] !== secret)
+    return res.status(401).json({ error: 'Token de webhook inválido' });
   const { token, nombre, telefono, fecha, hora, motivo } = req.body;
   if (!token) return res.status(401).json({ error: 'Token requerido' });
   const r = await pool.query('SELECT id FROM doctors WHERE panel_token=$1', [token]);
