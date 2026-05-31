@@ -4,9 +4,9 @@ import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 
 const STATUS = {
-  pendiente:  { color: '#ff9800', bg: '#fff3e0', label: 'Pendiente',  icon: '⏳' },
-  confirmada: { color: '#4caf50', bg: '#e8f5e9', label: 'Confirmada', icon: '✅' },
-  cancelada:  { color: '#f44336', bg: '#fff0f0', label: 'Cancelada',  icon: '❌' }
+  pendiente:  { label: 'Pendiente',  icon: '⏳', badge: 'bg-orange-100 text-orange-700' },
+  confirmada: { label: 'Confirmada', icon: '✅', badge: 'bg-green-100 text-green-700' },
+  cancelada:  { label: 'Cancelada',  icon: '❌', badge: 'bg-red-100 text-red-700' }
 };
 
 const fmtDate = (d) => {
@@ -16,7 +16,10 @@ const fmtDate = (d) => {
   return `${day}/${m}/${y}`;
 };
 const fmtTime = (t) => (t || '').slice(0, 5);
-const todayISO = () => new Date().toISOString().split('T')[0];
+const todayISO = () => {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 const cleanPhone = (t) => (t || '').replace(/:[0-9]+(@.*)?$/, '').replace(/@.*$/, '');
 
 export default function Dashboard() {
@@ -33,6 +36,7 @@ export default function Dashboard() {
   const [historyPhone, setHistoryPhone] = useState(null);
   const [updating, setUpdating] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const api = useCallback((url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
@@ -49,7 +53,6 @@ export default function Dashboard() {
   }, [fecha, api, nav]);
 
   useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
     api('/api/appointments/month').then(r => r.json()).then(d => setMonthTotal(d.total || 0));
   }, [api]);
@@ -69,275 +72,343 @@ export default function Dashboard() {
 
   const logout = () => { localStorage.clear(); nav('/login'); };
 
-  const pending = appointments.filter(a => a.status === 'pendiente').length;
-  const confirmed = appointments.filter(a => a.status === 'confirmada').length;
   const today = todayISO();
+  const pending   = appointments.filter(a => a.status === 'pendiente').length;
+  const confirmed = appointments.filter(a => a.status === 'confirmada').length;
 
   const statCards = [
-    { label: fecha ? `Citas del día` : 'Total citas', value: appointments.length, color: '#1a1a2e', bg: '#f0f4ff', icon: '📅' },
-    { label: 'Pendientes',  value: pending,   color: '#e65100', bg: '#fff3e0', icon: '⏳' },
-    { label: 'Confirmadas', value: confirmed, color: '#2e7d32', bg: '#e8f5e9', icon: '✅' },
+    { label: fecha ? 'Citas del día' : 'Total citas', value: appointments.length, color: '#1a1a2e', bg: '#f0f4ff', icon: '📅' },
+    { label: 'Pendientes',  value: pending,    color: '#e65100', bg: '#fff3e0', icon: '⏳' },
+    { label: 'Confirmadas', value: confirmed,  color: '#2e7d32', bg: '#e8f5e9', icon: '✅' },
     { label: 'Este mes',    value: monthTotal, color: '#6a1b9a', bg: '#f3e5f5', icon: '📊' }
   ];
 
+  const dateLabel = new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f0f2f5' }}>
-      {/* Header */}
-      <div style={{
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-        padding: '0 24px', height: 64,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        boxShadow: '0 2px 16px rgba(0,0,0,.2)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: 'linear-gradient(135deg, #25d366, #20b858)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18
-          }}>🏥</div>
-          <div>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Dr. {name}</div>
-            <div style={{ color: '#aaa', fontSize: 11 }}>Panel de Citas</div>
+    <div className="min-h-screen bg-gray-100">
+
+      {/* ── Mobile Drawer ─────────────────────────────────────────────────── */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 sm:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 flex flex-col shadow-2xl"
+            style={{ background: '#1a1a2e' }}>
+
+            {/* Drawer header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+                  style={{ background: 'linear-gradient(135deg, #25d366, #20b858)' }}>🏥</div>
+                <div>
+                  <div className="text-white font-bold text-sm">Dr. {name}</div>
+                  <div className="text-gray-400 text-xs">Panel de Citas</div>
+                </div>
+              </div>
+              <button onClick={() => setDrawerOpen(false)} className="text-gray-400 text-2xl leading-none p-1">✕</button>
+            </div>
+
+            {/* Date */}
+            <div className="px-5 py-4 border-b border-white/10">
+              <div className="text-gray-300 text-sm capitalize">{dateLabel}</div>
+            </div>
+
+            {/* Spacer — aquí puedes agregar navegación futura */}
+            <div className="flex-1" />
+
+            {/* Logout */}
+            <div className="p-5 border-t border-white/10">
+              <button onClick={logout}
+                className="w-full py-3 rounded-xl border border-white/20 text-white text-sm font-semibold bg-transparent cursor-pointer">
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ color: '#888', fontSize: 13 }}>
-            {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </span>
-          <button onClick={logout} style={{
-            background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.2)',
-            color: '#fff', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-          }}>
+      )}
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="px-4 sm:px-6 h-16 flex items-center justify-between shadow-lg"
+        style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
+
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
+            style={{ background: 'linear-gradient(135deg, #25d366, #20b858)' }}>🏥</div>
+          <div>
+            <div className="text-white font-bold text-sm">Dr. {name}</div>
+            <div className="text-gray-400 text-xs">Panel de Citas</div>
+          </div>
+        </div>
+
+        {/* Desktop: date + logout */}
+        <div className="hidden sm:flex items-center gap-4">
+          <span className="text-gray-400 text-sm capitalize">{dateLabel}</span>
+          <button onClick={logout}
+            className="px-3 py-1.5 rounded-lg text-white text-sm font-semibold cursor-pointer border"
+            style={{ background: 'rgba(255,255,255,.1)', borderColor: 'rgba(255,255,255,.2)' }}>
             Salir
           </button>
         </div>
+
+        {/* Mobile: hamburger */}
+        <button onClick={() => setDrawerOpen(true)}
+          className="sm:hidden text-white text-2xl p-1 leading-none cursor-pointer bg-transparent border-0">
+          ☰
+        </button>
       </div>
 
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 20px' }}>
+      {/* ── Content ───────────────────────────────────────────────────────── */}
+      <div className="max-w-6xl mx-auto px-4 py-5 sm:py-6">
 
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
+        {/* Stats: 2 cols on mobile → 4 on sm+ */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-5">
           {statCards.map(s => (
-            <div key={s.label} style={{
-              background: '#fff', borderRadius: 14, padding: '20px 20px',
-              boxShadow: '0 2px 12px rgba(0,0,0,.06)', borderTop: `3px solid ${s.color}`
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div key={s.label} className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm"
+              style={{ borderTop: `3px solid ${s.color}` }}>
+              <div className="flex justify-between items-start">
                 <div>
-                  <div style={{ fontSize: 36, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                  <div style={{ color: '#888', fontSize: 13, marginTop: 4 }}>{s.label}</div>
+                  <div className="text-3xl sm:text-4xl font-extrabold leading-none" style={{ color: s.color }}>
+                    {s.value}
+                  </div>
+                  <div className="text-gray-400 text-xs sm:text-sm mt-1">{s.label}</div>
                 </div>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 12, background: s.bg,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20
-                }}>{s.icon}</div>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+                  style={{ background: s.bg }}>
+                  {s.icon}
+                </div>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Filter + New button */}
-        <div style={{
-          background: '#fff', borderRadius: 14, padding: '16px 20px', marginBottom: 20,
-          boxShadow: '0 2px 12px rgba(0,0,0,.06)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600, fontSize: 14, color: '#444' }}>Filtrar por fecha:</span>
-            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
-              style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid #ddd', fontSize: 13, cursor: 'pointer' }} />
-            <button onClick={() => setFecha(today)} style={{
-              padding: '8px 14px', borderRadius: 8, background: fecha === today ? '#e8f5e9' : '#f0f2f5',
-              color: fecha === today ? '#2e7d32' : '#555', border: 'none', cursor: 'pointer',
-              fontSize: 13, fontWeight: 600
-            }}>
-              Hoy
-            </button>
-            {fecha && (
-              <button onClick={() => setFecha('')} style={{
-                padding: '8px 14px', borderRadius: 8, background: '#f0f2f5',
-                color: '#555', border: 'none', cursor: 'pointer', fontSize: 13
-              }}>
-                Todas
+        {/* Filter bar + New button */}
+        <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="hidden sm:inline text-sm font-semibold text-gray-600">Filtrar por fecha:</span>
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                className="flex-1 sm:flex-none px-3 py-2 rounded-xl border-2 border-gray-100 text-sm cursor-pointer focus:border-[#25d366] focus:outline-none" />
+              <button onClick={() => setFecha(today)}
+                className={`px-3 py-2 rounded-xl text-sm font-semibold border-0 cursor-pointer
+                  ${fecha === today ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                Hoy
               </button>
-            )}
+              {fecha && (
+                <button onClick={() => setFecha('')}
+                  className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm border-0 cursor-pointer">
+                  Todas
+                </button>
+              )}
+            </div>
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-5 py-2.5 rounded-xl text-white font-bold text-sm cursor-pointer border-0"
+              style={{ background: 'linear-gradient(135deg, #1a1a2e, #2d2d4e)', boxShadow: '0 4px 12px rgba(26,26,46,.3)' }}>
+              <span className="text-base font-bold">+</span> Nueva Cita
+            </button>
           </div>
-          <button onClick={() => setShowAdd(true)} style={{
-            padding: '10px 20px', borderRadius: 9,
-            background: 'linear-gradient(135deg, #1a1a2e, #2d2d4e)',
-            color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14,
-            boxShadow: '0 4px 12px rgba(26,26,46,.3)', display: 'flex', alignItems: 'center', gap: 6
-          }}>
-            <span style={{ fontSize: 16 }}>+</span> Nueva Cita
-          </button>
         </div>
 
-        {/* Table */}
-        <div style={{ background: '#fff', borderRadius: 14, boxShadow: '0 2px 12px rgba(0,0,0,.06)', overflow: 'hidden' }}>
-          {/* Table header */}
-          <div style={{
-            background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-            padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-          }}>
-            <h2 style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>
+        {/* Appointments section */}
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+
+          {/* Section header */}
+          <div className="flex justify-between items-center px-5 py-3.5"
+            style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
+            <h2 className="text-white font-bold text-sm">
               📋 Citas {fecha ? `— ${fmtDate(fecha)}` : '— Todas'}
             </h2>
-            <span style={{
-              background: 'rgba(255,255,255,.15)', color: '#fff', padding: '3px 10px',
-              borderRadius: 20, fontSize: 12, fontWeight: 600
-            }}>
+            <span className="text-white text-xs font-semibold px-3 py-0.5 rounded-full"
+              style={{ background: 'rgba(255,255,255,.15)' }}>
               {appointments.length} {appointments.length === 1 ? 'cita' : 'citas'}
             </span>
           </div>
 
           {loading ? (
-            <div style={{ padding: 60, textAlign: 'center', color: '#888' }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>⏳</div>
+            <div className="py-16 text-center text-gray-400">
+              <div className="text-4xl mb-2">⏳</div>
               <p>Cargando citas...</p>
             </div>
           ) : appointments.length === 0 ? (
-            <div style={{ padding: 60, textAlign: 'center', color: '#aaa' }}>
-              <div style={{ fontSize: 52, marginBottom: 12 }}>📭</div>
-              <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sin citas {fecha ? 'para este día' : 'registradas'}</p>
-              <p style={{ fontSize: 13 }}>Haz clic en "+ Nueva Cita" para agregar una</p>
+            <div className="py-16 text-center text-gray-400">
+              <div className="text-5xl mb-3">📭</div>
+              <p className="text-base font-semibold text-gray-500 mb-1">
+                Sin citas {fecha ? 'para este día' : 'registradas'}
+              </p>
+              <p className="text-sm">Haz clic en "+ Nueva Cita" para agregar una</p>
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#f8f9ff' }}>
-                    {['Paciente', 'Teléfono', 'Fecha', 'Hora', 'Motivo', 'Fuente', 'Estado', 'Acciones'].map(h => (
-                      <th key={h} style={{
-                        padding: '12px 16px', textAlign: 'left', fontSize: 12,
-                        fontWeight: 700, color: '#666', borderBottom: '1px solid #eee',
-                        whiteSpace: 'nowrap'
-                      }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {appointments.map((c, i) => {
-                    const st = STATUS[c.status] || STATUS.pendiente;
-                    return (
-                      <tr key={c.id} style={{
-                        background: i % 2 === 0 ? '#fff' : '#fafbff',
-                        transition: 'background .15s'
-                      }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
-                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafbff'}
-                      >
-                        <td style={{ padding: '13px 16px', fontWeight: 700, fontSize: 14, color: '#1a1a2e' }}>
-                          {c.nombre}
-                        </td>
-                        <td style={{ padding: '13px 16px' }}>
-                          {c.telefono ? (
-                            <button onClick={() => setHistoryPhone(c.telefono)} style={{
-                              background: '#e8f5e9', color: '#2e7d32', border: 'none',
-                              padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
-                              fontSize: 12, fontWeight: 600
-                            }}>
-                              📞 +{cleanPhone(c.telefono)}
+            <>
+              {/* ── MOBILE: Cards (< sm) ───────────────────────────────── */}
+              <div className="block sm:hidden divide-y divide-gray-100">
+                {appointments.map(c => {
+                  const st = STATUS[c.status] || STATUS.pendiente;
+                  return (
+                    <div key={c.id} className="p-4">
+                      {/* Name + badge */}
+                      <div className="flex items-start justify-between mb-2">
+                        <span className="font-bold text-[#1a1a2e] text-base leading-tight">{c.nombre}</span>
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ml-2 shrink-0 ${st.badge}`}>
+                          {st.icon} {st.label}
+                        </span>
+                      </div>
+
+                      {/* Date / time / source */}
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 mb-2">
+                        <span>📅 {fmtDate(c.fecha)}</span>
+                        <span className="font-bold text-[#1a1a2e]">⏰ {fmtTime(c.hora)}</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded
+                          ${c.source === 'whatsapp' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {c.source === 'whatsapp' ? '📱 WA' : '✏️ Manual'}
+                        </span>
+                      </div>
+
+                      {/* Motivo */}
+                      {c.motivo && (
+                        <div className="text-sm text-gray-500 mb-2 truncate">📝 {c.motivo}</div>
+                      )}
+
+                      {/* Phone */}
+                      {c.telefono && (
+                        <button onClick={() => setHistoryPhone(c.telefono)}
+                          className="bg-green-50 text-green-700 text-xs font-bold px-3 py-1.5 rounded-lg mb-3 border-0 cursor-pointer block">
+                          📞 +{cleanPhone(c.telefono)}
+                        </button>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-2">
+                        {c.status === 'pendiente' && (
+                          <>
+                            <button disabled={updating === c.id}
+                              onClick={() => changeStatus(c.id, 'confirmada')}
+                              className="flex-1 py-2.5 rounded-xl bg-green-50 text-green-700 font-bold text-sm border-0 cursor-pointer disabled:opacity-50">
+                              ✅ Confirmar
                             </button>
-                          ) : <span style={{ color: '#ccc' }}>—</span>}
-                        </td>
-                        <td style={{ padding: '13px 16px', fontSize: 13, color: '#444', whiteSpace: 'nowrap' }}>
-                          {fmtDate(c.fecha)}
-                        </td>
-                        <td style={{ padding: '13px 16px', fontSize: 14, fontWeight: 700, color: '#1a1a2e', whiteSpace: 'nowrap' }}>
-                          {fmtTime(c.hora)}
-                        </td>
-                        <td style={{ padding: '13px 16px', fontSize: 13, color: '#666', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {c.motivo || <span style={{ color: '#ccc' }}>—</span>}
-                        </td>
-                        <td style={{ padding: '13px 16px' }}>
-                          <span style={{
-                            background: c.source === 'whatsapp' ? '#e8f5e9' : '#e3f2fd',
-                            color: c.source === 'whatsapp' ? '#2e7d32' : '#1565c0',
-                            padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700
-                          }}>
-                            {c.source === 'whatsapp' ? '📱 WA' : '✏️ Manual'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '13px 16px' }}>
-                          <span style={{
-                            background: st.bg, color: st.color,
-                            padding: '5px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {st.icon} {st.label}
-                          </span>
-                        </td>
-                        <td style={{ padding: '13px 16px' }}>
-                          <div style={{ display: 'flex', gap: 5 }}>
-                            {c.status === 'pendiente' && (
-                              <>
-                                <button disabled={updating === c.id}
-                                  onClick={() => changeStatus(c.id, 'confirmada')}
-                                  title="Confirmar"
-                                  style={{ background: '#e8f5e9', color: '#2e7d32', border: 'none', padding: '6px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 13 }}>
-                                  ✅
-                                </button>
-                                <button disabled={updating === c.id}
-                                  onClick={() => changeStatus(c.id, 'cancelada')}
-                                  title="Cancelar"
-                                  style={{ background: '#fff0f0', color: '#f44336', border: 'none', padding: '6px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 13 }}>
-                                  ❌
-                                </button>
-                              </>
-                            )}
-                            <button onClick={() => setEditing(c)} title="Editar"
-                              style={{ background: '#e8eaf6', color: '#3949ab', border: 'none', padding: '6px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 13 }}>
-                              ✏️
+                            <button disabled={updating === c.id}
+                              onClick={() => changeStatus(c.id, 'cancelada')}
+                              className="flex-1 py-2.5 rounded-xl bg-red-50 text-red-600 font-bold text-sm border-0 cursor-pointer disabled:opacity-50">
+                              ❌ Cancelar
                             </button>
-                            <button onClick={() => setConfirmDelete(c.id)} title="Eliminar"
-                              style={{ background: '#fff0f0', color: '#f44336', border: 'none', padding: '6px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 13 }}>
-                              🗑
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          </>
+                        )}
+                        {c.status !== 'pendiente' && <div className="flex-1" />}
+                        <button onClick={() => setEditing(c)}
+                          className="px-4 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 font-bold text-sm border-0 cursor-pointer">
+                          ✏️
+                        </button>
+                        <button onClick={() => setConfirmDelete(c.id)}
+                          className="px-4 py-2.5 rounded-xl bg-red-50 text-red-500 font-bold text-sm border-0 cursor-pointer">
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── DESKTOP: Table (≥ sm) ──────────────────────────────── */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      {['Paciente','Teléfono','Fecha','Hora','Motivo','Fuente','Estado','Acciones'].map(h => (
+                        <th key={h}
+                          className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {appointments.map((c, i) => {
+                      const st = STATUS[c.status] || STATUS.pendiente;
+                      return (
+                        <tr key={c.id}
+                          className={`transition-colors hover:bg-blue-50
+                            ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                          <td className="px-4 py-3 font-bold text-sm text-[#1a1a2e]">{c.nombre}</td>
+                          <td className="px-4 py-3">
+                            {c.telefono ? (
+                              <button onClick={() => setHistoryPhone(c.telefono)}
+                                className="bg-green-50 text-green-700 border-0 px-2.5 py-1 rounded-lg cursor-pointer text-xs font-bold">
+                                📞 +{cleanPhone(c.telefono)}
+                              </button>
+                            ) : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{fmtDate(c.fecha)}</td>
+                          <td className="px-4 py-3 text-sm font-bold text-[#1a1a2e] whitespace-nowrap">{fmtTime(c.hora)}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500 max-w-[160px] truncate">
+                            {c.motivo || <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded
+                              ${c.source === 'whatsapp' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                              {c.source === 'whatsapp' ? '📱 WA' : '✏️ Manual'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${st.badge}`}>
+                              {st.icon} {st.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex gap-1.5">
+                              {c.status === 'pendiente' && (
+                                <>
+                                  <button disabled={updating === c.id}
+                                    onClick={() => changeStatus(c.id, 'confirmada')}
+                                    className="bg-green-50 text-green-700 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm disabled:opacity-50">
+                                    ✅
+                                  </button>
+                                  <button disabled={updating === c.id}
+                                    onClick={() => changeStatus(c.id, 'cancelada')}
+                                    className="bg-red-50 text-red-500 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm disabled:opacity-50">
+                                    ❌
+                                  </button>
+                                </>
+                              )}
+                              <button onClick={() => setEditing(c)}
+                                className="bg-indigo-50 text-indigo-700 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm">
+                                ✏️
+                              </button>
+                              <button onClick={() => setConfirmDelete(c.id)}
+                                className="bg-red-50 text-red-500 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm">
+                                🗑
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Modals */}
-      {showAdd && (
-        <CitaModal cita={null} onClose={() => setShowAdd(false)} onSaved={() => { load(); }} />
-      )}
-      {editing && (
-        <CitaModal cita={editing} onClose={() => setEditing(null)} onSaved={() => { load(); }} />
-      )}
-      {historyPhone && (
-        <PatientHistoryModal telefono={historyPhone} onClose={() => setHistoryPhone(null)} />
-      )}
+      {/* ── Modals ────────────────────────────────────────────────────────── */}
+      {showAdd && <CitaModal cita={null} onClose={() => setShowAdd(false)} onSaved={load} />}
+      {editing  && <CitaModal cita={editing} onClose={() => setEditing(null)} onSaved={load} />}
+      {historyPhone && <PatientHistoryModal telefono={historyPhone} onClose={() => setHistoryPhone(null)} />}
 
       {/* Delete confirm */}
       {confirmDelete && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1002, padding: 16
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 14, padding: 28, width: 360, maxWidth: '100%',
-            boxShadow: '0 20px 60px rgba(0,0,0,.25)', textAlign: 'center'
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🗑️</div>
-            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>¿Eliminar esta cita?</h3>
-            <p style={{ color: '#888', fontSize: 13, marginBottom: 20 }}>Esta acción no se puede deshacer.</p>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setConfirmDelete(null)} style={{
-                flex: 1, padding: '11px', borderRadius: 9, border: '1.5px solid #ddd',
-                background: '#fff', fontWeight: 600, cursor: 'pointer'
-              }}>Cancelar</button>
-              <button onClick={() => deleteOne(confirmDelete)} style={{
-                flex: 1, padding: '11px', borderRadius: 9, border: 'none',
-                background: '#f44336', color: '#fff', fontWeight: 700, cursor: 'pointer'
-              }}>Eliminar</button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1002] p-4">
+          <div className="bg-white rounded-2xl p-7 w-full max-w-sm shadow-2xl text-center">
+            <div className="text-5xl mb-3">🗑️</div>
+            <h3 className="text-lg font-bold mb-2">¿Eliminar esta cita?</h3>
+            <p className="text-gray-500 text-sm mb-5">Esta acción no se puede deshacer.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-3 rounded-xl border border-gray-200 font-semibold cursor-pointer bg-white text-gray-700">
+                Cancelar
+              </button>
+              <button onClick={() => deleteOne(confirmDelete)}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold cursor-pointer border-0">
+                Eliminar
+              </button>
             </div>
           </div>
         </div>

@@ -22,30 +22,65 @@ const FACTORY_SECRET = process.env.FACTORY_SECRET || 'factory-secret-change-me';
 // Wrapper — evita que un error async apague el servidor
 const h = fn => (req, res, next) => fn(req, res, next).catch(next);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tablas PROPIAS de panel-secretarias (coexisten de forma segura con factory_prod):
+//   doctors       — cuentas de doctores/secretarias
+//   appointments  — citas agendadas
+//
+// Tablas de bot-factory que comparten la misma DB — NUNCA se tocan aquí:
+//   bots, bot_items, settings, catalogs, citas, patients, conv_state, wa_sessions
+// ─────────────────────────────────────────────────────────────────────────────
 async function initDB() {
+  const dbHost = (process.env.DATABASE_URL || '').replace(/:[^:@]*@/, ':***@').split('?')[0];
+  console.log(`[db] Conectando a: ${dbHost}`);
+
+  // Separados para que un fallo en uno no enmascare al otro
   await pool.query(`
     CREATE TABLE IF NOT EXISTS doctors (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) UNIQUE NOT NULL,
+      id            SERIAL PRIMARY KEY,
+      name          VARCHAR(255) NOT NULL,
+      email         VARCHAR(255) UNIQUE NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
-      bot_slug VARCHAR(255) UNIQUE NOT NULL,
-      panel_token VARCHAR(255) UNIQUE NOT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS appointments (
-      id SERIAL PRIMARY KEY,
-      doctor_id INTEGER REFERENCES doctors(id) ON DELETE CASCADE,
-      nombre VARCHAR(255) NOT NULL,
-      telefono VARCHAR(50) DEFAULT '',
-      fecha DATE NOT NULL,
-      hora TIME NOT NULL,
-      motivo TEXT DEFAULT '',
-      status VARCHAR(50) DEFAULT 'pendiente',
-      source VARCHAR(50) DEFAULT 'whatsapp',
-      created_at TIMESTAMP DEFAULT NOW()
-    );
+      bot_slug      VARCHAR(255) UNIQUE NOT NULL,
+      panel_token   VARCHAR(255) UNIQUE NOT NULL,
+      created_at    TIMESTAMP DEFAULT NOW()
+    )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS appointments (
+      id        SERIAL PRIMARY KEY,
+      doctor_id INTEGER REFERENCES doctors(id) ON DELETE CASCADE,
+      nombre    VARCHAR(255) NOT NULL,
+      telefono  VARCHAR(50)  DEFAULT '',
+      fecha     DATE         NOT NULL,
+      hora      TIME         NOT NULL,
+      motivo    TEXT         DEFAULT '',
+      status    VARCHAR(50)  DEFAULT 'pendiente',
+      source    VARCHAR(50)  DEFAULT 'whatsapp',
+      created_at TIMESTAMP   DEFAULT NOW()
+    )
+  `);
+
+  // Migraciones incrementales — seguras de re-ejecutar
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'doctor'`);
+
+  console.log('[db] Schema panel-secretarias OK');
+
+  // Seed: admin de arranque solo si la tabla doctors está completamente vacía
+  const { rows } = await pool.query('SELECT COUNT(*) AS total FROM doctors');
+  if (parseInt(rows[0].total) === 0) {
+    const hash = await bcrypt.hash('1234', 10);
+    const token = crypto.randomBytes(32).toString('hex');
+    await pool.query(
+      `INSERT INTO doctors (name, email, password_hash, bot_slug, panel_token, role)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      ['Admin', 'admin@bot.com', hash, 'admin-seed', token, 'admin']
+    );
+    console.log('[db] Seed ejecutado → admin@bot.com / 1234');
+  } else {
+    console.log(`[db] Seed omitido — ya existen ${rows[0].total} doctor(es)`);
+  }
 }
 
 function auth(req, res, next) {

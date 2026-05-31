@@ -29,37 +29,30 @@ export default function Login() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)'
-    }}>
-      <div style={{
-        background: '#fff', borderRadius: 20, padding: '48px 40px', width: 400, maxWidth: '90vw',
-        boxShadow: '0 24px 80px rgba(0,0,0,.35)'
-      }}>
+    <div className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}>
+
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-8 sm:p-10">
+
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: 20, background: 'linear-gradient(135deg, #1a1a2e, #25d366)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 32, margin: '0 auto 16px', boxShadow: '0 8px 24px rgba(37,211,102,.3)'
-          }}>🏥</div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', marginBottom: 4 }}>Panel Médico</h1>
-          <p style={{ color: '#888', fontSize: 14 }}>Sistema de gestión de citas</p>
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-3xl shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #1a1a2e, #25d366)', boxShadow: '0 8px 24px rgba(37,211,102,.3)' }}>
+            🏥
+          </div>
+          <h1 className="text-2xl font-extrabold text-[#1a1a2e]">Panel Médico</h1>
+          <p className="text-gray-400 text-sm mt-1">Sistema de gestión de citas</p>
         </div>
 
         {error && (
-          <div style={{
-            background: '#fff0f0', border: '1px solid #ffcdd2', color: '#c62828',
-            padding: '12px 14px', borderRadius: 10, fontSize: 13, marginBottom: 20, textAlign: 'center'
-          }}>
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-5 text-center">
             {error}
           </div>
         )}
 
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <form onSubmit={submit} className="flex flex-col gap-4">
           <div>
-            <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 6, color: '#444' }}>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
               Correo electrónico
             </label>
             <input
@@ -67,17 +60,11 @@ export default function Login() {
               value={form.email}
               onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
               placeholder="secretaria@clinica.com"
-              style={{
-                width: '100%', padding: '12px 14px', borderRadius: 10,
-                border: '2px solid #eee', fontSize: 14, outline: 'none',
-                transition: 'border-color .2s'
-              }}
-              onFocus={e => e.target.style.borderColor = '#25d366'}
-              onBlur={e => e.target.style.borderColor = '#eee'}
+              className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 text-sm focus:border-[#25d366] focus:outline-none transition-colors"
             />
           </div>
           <div>
-            <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 6, color: '#444' }}>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
               Contraseña
             </label>
             <input
@@ -85,30 +72,22 @@ export default function Login() {
               value={form.password}
               onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
               placeholder="••••••••"
-              style={{
-                width: '100%', padding: '12px 14px', borderRadius: 10,
-                border: '2px solid #eee', fontSize: 14, outline: 'none',
-                transition: 'border-color .2s'
-              }}
-              onFocus={e => e.target.style.borderColor = '#25d366'}
-              onBlur={e => e.target.style.borderColor = '#eee'}
+              className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 text-sm focus:border-[#25d366] focus:outline-none transition-colors"
             />
           </div>
           <button
             type="submit" disabled={loading}
-            style={{
-              marginTop: 8, padding: '13px', borderRadius: 10, border: 'none',
-              background: loading ? '#ccc' : 'linear-gradient(135deg, #25d366, #20b858)',
-              color: '#fff', fontWeight: 700, fontSize: 15, cursor: loading ? 'default' : 'pointer',
-              boxShadow: loading ? 'none' : '0 4px 16px rgba(37,211,102,.4)',
-              transition: 'all .2s'
+            className="mt-2 py-3.5 rounded-xl text-white font-bold text-base transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            style={loading ? { background: '#ccc' } : {
+              background: 'linear-gradient(135deg, #25d366, #20b858)',
+              boxShadow: '0 4px 16px rgba(37,211,102,.4)'
             }}
           >
             {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', color: '#bbb', fontSize: 12, marginTop: 24 }}>
+        <p className="text-center text-gray-300 text-xs mt-6">
           Panel exclusivo para secretarias médicas
         </p>
       </div>
