@@ -1,3 +1,4 @@
+process.env.TZ = 'America/Mexico_City';
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -271,7 +272,7 @@ app.get('/api/analytics', auth, h(async (req, res) => {
       `SELECT source, COUNT(*)::int AS count
        FROM appointments
        WHERE doctor_id = $1
-         AND created_at >= NOW() - INTERVAL '30 days'
+         AND created_at >= (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City') - INTERVAL '30 days'
        GROUP BY source`,
       [did]
     ),
