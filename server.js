@@ -68,6 +68,17 @@ async function initDB() {
   // Migraciones incrementales — seguras de re-ejecutar
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'doctor'`);
   await pool.query(`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS waiting_list (
+      id         SERIAL PRIMARY KEY,
+      doctor_id  INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+      nombre     VARCHAR(255) NOT NULL,
+      telefono   VARCHAR(50)  NOT NULL,
+      bot_slug   VARCHAR(255) DEFAULT '',
+      created_at TIMESTAMP    DEFAULT NOW(),
+      UNIQUE(doctor_id, telefono)
+    )
+  `);
 
   console.log('[db] Schema panel-secretarias OK');
 
@@ -367,6 +378,38 @@ app.get('/api/analytics', auth, h(async (req, res) => {
     byStatus:    statusRes.rows,
     byDayOfWeek: dowRes.rows,
   });
+}));
+
+// ── Lista de espera ───────────────────────────────────────────────────────────
+app.get('/api/waiting-list', auth, h(async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT * FROM waiting_list WHERE doctor_id=$1 ORDER BY created_at ASC',
+    [req.user.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/waiting-list', auth, h(async (req, res) => {
+  const { nombre, telefono } = req.body;
+  if (!nombre?.trim() || !telefono?.trim())
+    return res.status(400).json({ error: 'Nombre y teléfono son requeridos' });
+  const { rows } = await pool.query(
+    `INSERT INTO waiting_list (doctor_id, nombre, telefono)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (doctor_id, telefono) DO NOTHING
+     RETURNING *`,
+    [req.user.id, nombre.trim(), telefono.trim()]
+  );
+  if (!rows.length) return res.status(409).json({ error: 'Este número ya está en la lista de espera' });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/waiting-list/:id', auth, h(async (req, res) => {
+  await pool.query(
+    'DELETE FROM waiting_list WHERE id=$1 AND doctor_id=$2',
+    [req.params.id, req.user.id]
+  );
+  res.json({ ok: true });
 }));
 
 // ── Lógica de recordatorios (también usada por el cron) ──────────────────────

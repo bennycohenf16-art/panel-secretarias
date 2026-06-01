@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 import BotStatusWidget from '../components/BotStatusWidget';
+import WaitingListPanel from '../components/WaitingListPanel';
 
 const DOW_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
@@ -226,7 +227,7 @@ export default function Dashboard() {
 
             {/* Navegación de tabs */}
             <div className="px-5 py-4 space-y-2">
-              {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento']].map(([key,label]) => (
+              {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento'],['espera','⏳ Lista de Espera']].map(([key,label]) => (
                 <button key={key} onClick={() => { setTab(key); setDrawerOpen(false); }}
                   className="w-full py-3 rounded-xl text-sm font-semibold border-0 cursor-pointer text-left px-4 transition-colors"
                   style={tab === key
@@ -288,7 +289,7 @@ export default function Dashboard() {
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
       <div className="px-4 sm:px-6 flex gap-1"
         style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', paddingBottom: '0' }}>
-        {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento']].map(([key,label]) => (
+        {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento'],['espera','⏳ Espera']].map(([key,label]) => (
           <button key={key} onClick={() => setTab(key)}
             className="px-4 py-2.5 text-sm font-semibold border-0 cursor-pointer transition-colors rounded-t-lg"
             style={tab === key
@@ -304,7 +305,8 @@ export default function Dashboard() {
 
         <BotStatusWidget token={token} />
 
-        {tab === 'analytics' ? <AnalyticsContent token={token} /> : (<>
+        {tab === 'analytics' ? <AnalyticsContent token={token} /> :
+         tab === 'espera'    ? <WaitingListPanel token={token} /> : (<>
 
         {/* Stats: 2 cols on mobile → 4 on sm+ */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-5">
