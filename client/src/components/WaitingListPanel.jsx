@@ -81,6 +81,17 @@ export default function WaitingListPanel({ token }) {
   const fmtDate = (ts) =>
     new Date(ts).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 
+  // Parsea fecha_preferida sin desfase de zona horaria.
+  // Postgres devuelve DATE como ISO completo ("2025-06-04T06:00:00.000Z");
+  // concatenar 'T12:00:00' a eso rompe el parse → extraer solo YYYY-MM-DD primero.
+  const fmtFecha = (raw) => {
+    if (!raw) return 'Por definir';
+    const iso = String(raw).slice(0, 10);           // siempre "YYYY-MM-DD"
+    const [y, m, d] = iso.split('-').map(Number);
+    if (!y || !m || !d || isNaN(y + m + d)) return 'Por definir';
+    return new Date(y, m - 1, d, 12).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+  };
+
   return (
     <div className="space-y-4">
 
@@ -153,7 +164,7 @@ export default function WaitingListPanel({ token }) {
                       <span>📞 +{p.telefono}</span>
                       {p.fecha_preferida && (
                         <span className="text-amber-600 font-semibold">
-                          📅 {new Date(p.fecha_preferida + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                          📅 {fmtFecha(p.fecha_preferida)}
                         </span>
                       )}
                       <span className="text-gray-300">
