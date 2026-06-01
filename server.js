@@ -242,11 +242,42 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
 
 app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   const { status } = req.body;
-  await pool.query(
-    'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3',
+  const r = await pool.query(
+    'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3 RETURNING nombre, telefono, fecha, hora',
     [status, req.params.id, req.user.id]
   );
   res.json({ ok: true });
+
+  if ((status === 'confirmada' || status === 'cancelada') && r.rows.length) {
+    const { nombre, telefono, fecha, hora } = r.rows[0];
+    if (!telefono) return;
+
+    const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+    if (!dr.rows.length) return;
+    const botSlug = dr.rows[0].bot_slug;
+
+    const fechaStr = String(fecha).substring(0, 10);
+    const [y, m, d] = fechaStr.split('-');
+    const fechaFmt = `${d}/${m}/${y}`;
+    const horaFmt  = String(hora).substring(0, 5);
+
+    const text = status === 'confirmada'
+      ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaFmt}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
+      : `Hola, ${nombre}. Te informamos que tu cita del *${fechaFmt}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escríbenos de nuevo. 🙏`;
+
+    const factoryUrl = process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com';
+    const apiKey     = process.env.INTERNAL_API_KEY  || '';
+
+    fetch(`${factoryUrl}/api/messages/send-notification`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+      body:    JSON.stringify({ botSlug, phone: telefono, text })
+    })
+      .then(resp => resp.ok
+        ? console.log(`[notify] ✅ ${status} → ${nombre} (${telefono})`)
+        : resp.json().then(e => console.error(`[notify] Error factory:`, e.error)))
+      .catch(e => console.error('[notify] fetch error:', e.message));
+  }
 }));
 
 app.delete('/api/appointments/:id', auth, h(async (req, res) => {
