@@ -286,12 +286,12 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
           headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
           body:    JSON.stringify({ botSlug, phone: telefono, text })
         });
-        const body = await resp.json();
-        if (resp.ok) {
-          console.log(`[notify] ✅ Enviado: ${status} → ${nombre} (${telefono})`);
-        } else {
-          console.error(`[notify] ❌ Factory respondió ${resp.status}:`, body);
+        const raw = await resp.text();
+        if (!resp.ok) {
+          throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
         }
+        const body = JSON.parse(raw);
+        console.log(`[notify] ✅ Enviado: ${status} → ${nombre} (${telefono})`, body);
       } catch (err) {
         console.error('[Bridge Error] Excepción en bloque de notificación:', err.message, err.stack);
       }
