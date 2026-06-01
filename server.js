@@ -382,6 +382,14 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
 
 app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   const { status } = req.body;
+
+  const prev = await pool.query(
+    'SELECT status FROM appointments WHERE id=$1 AND doctor_id=$2',
+    [req.params.id, req.user.id]
+  );
+  const estadoPrevio = prev.rows[0]?.status ?? null;
+  const dispararNotificacionCancelacion = estadoPrevio === 'confirmada' && status === 'cancelada';
+
   const r = await pool.query(
     'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3 RETURNING nombre, telefono, fecha, hora',
     [status, req.params.id, req.user.id]
@@ -389,11 +397,12 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   res.json({ ok: true });
 
   // Bloque de notificación completamente aislado — no puede afectar la respuesta ya enviada
-  if ((status === 'confirmada' || status === 'cancelada') && r.rows.length) {
+  const dispararConfirmada = status === 'confirmada' && r.rows.length;
+  if ((dispararConfirmada || dispararNotificacionCancelacion) && r.rows.length) {
     ;(async () => {
       try {
         const { nombre, telefono, fecha, hora } = r.rows[0];
-        console.log(`[notify] Iniciando bridge: status=${status} nombre=${nombre} telefono="${telefono}"`);
+        console.log(`[notify] Iniciando bridge: status=${status} estadoPrevio=${estadoPrevio} nombre=${nombre} telefono="${telefono}"`);
 
         if (!telefono || telefono.trim() === '') {
           console.warn('[notify] Abortado — teléfono vacío en la cita');
@@ -429,7 +438,7 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
 
         const text = status === 'confirmada'
           ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
-          : `Hola, ${nombre}. Te informamos que tu cita para el *${fechaCitaStr}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escribe de nuevo a este chat. 🙏`;
+          : `✅ Tu cita ha sido cancelada exitosamente.\n\nSi deseas volver a agendar, escribe 'hola' en cualquier momento. ¡Que te mejores! 🙏`;
 
         const baseUrl    = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
         const finalUrl   = `${baseUrl}/api/messages/send-notification`;
