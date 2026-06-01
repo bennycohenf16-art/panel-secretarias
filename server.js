@@ -70,15 +70,19 @@ async function initDB() {
   await pool.query(`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS waiting_list (
-      id         SERIAL PRIMARY KEY,
-      doctor_id  INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
-      nombre     VARCHAR(255) NOT NULL,
-      telefono   VARCHAR(50)  NOT NULL,
-      bot_slug   VARCHAR(255) DEFAULT '',
-      created_at TIMESTAMP    DEFAULT NOW(),
+      id              SERIAL PRIMARY KEY,
+      doctor_id       INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+      nombre          VARCHAR(255) NOT NULL,
+      telefono        VARCHAR(50)  NOT NULL,
+      bot_slug        VARCHAR(255) DEFAULT '',
+      fecha_preferida DATE,
+      origen          VARCHAR(50)  DEFAULT 'manual',
+      created_at      TIMESTAMP    DEFAULT NOW(),
       UNIQUE(doctor_id, telefono)
     )
   `);
+  await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS fecha_preferida DATE`);
+  await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS origen VARCHAR(50) DEFAULT 'manual'`);
 
   console.log('[db] Schema panel-secretarias OK');
 
@@ -390,18 +394,55 @@ app.get('/api/waiting-list', auth, h(async (req, res) => {
 }));
 
 app.post('/api/waiting-list', auth, h(async (req, res) => {
-  const { nombre, telefono } = req.body;
+  const { nombre, telefono, fecha_preferida } = req.body;
   if (!nombre?.trim() || !telefono?.trim())
     return res.status(400).json({ error: 'Nombre y teléfono son requeridos' });
   const { rows } = await pool.query(
-    `INSERT INTO waiting_list (doctor_id, nombre, telefono)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (doctor_id, telefono) DO NOTHING
+    `INSERT INTO waiting_list (doctor_id, nombre, telefono, fecha_preferida, origen)
+     VALUES ($1, $2, $3, $4, 'manual')
+     ON CONFLICT (doctor_id, telefono)
+     DO UPDATE SET fecha_preferida = EXCLUDED.fecha_preferida, created_at = CURRENT_TIMESTAMP
      RETURNING *`,
-    [req.user.id, nombre.trim(), telefono.trim()]
+    [req.user.id, nombre.trim(), telefono.trim(), fecha_preferida || null]
   );
-  if (!rows.length) return res.status(409).json({ error: 'Este número ya está en la lista de espera' });
   res.json(rows[0]);
+}));
+
+// Ofrecer un espacio liberado a un paciente en espera
+app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
+  const { waiting_list_id, fecha, hora } = req.body;
+  if (!waiting_list_id || !fecha || !hora)
+    return res.status(400).json({ error: 'Faltan campos: waiting_list_id, fecha, hora' });
+
+  const r = await pool.query(
+    `SELECT w.nombre, w.telefono, d.bot_slug
+     FROM waiting_list w
+     JOIN doctors d ON w.doctor_id = d.id
+     WHERE w.id=$1 AND w.doctor_id=$2`,
+    [waiting_list_id, req.user.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: 'Paciente no encontrado en tu lista' });
+
+  const { nombre, telefono, bot_slug } = r.rows[0];
+  const fechaFmt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-MX', {
+    weekday: 'long', day: 'numeric', month: 'long'
+  });
+  const horaFmt = String(hora).substring(0, 5);
+  const text = `¡Hola, ${nombre}! ✨ Se acaba de liberar un espacio con el doctor para el *${fechaFmt}* a las *${horaFmt} hrs*. ¿Te interesa agendarlo? Responde *SÍ* para asegurarlo de inmediato. 🏥`;
+
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY || '';
+  const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+    body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text })
+  });
+  const raw = await resp.text();
+  if (!resp.ok) throw new Error(`Bot Factory: ${raw.substring(0, 200)}`);
+
+  await pool.query('DELETE FROM waiting_list WHERE id=$1', [waiting_list_id]);
+  console.log(`[offer] ✅ Espacio ofrecido a ${nombre} (${telefono}) → ${fecha} ${horaFmt}`);
+  res.json({ ok: true });
 }));
 
 app.delete('/api/waiting-list/:id', auth, h(async (req, res) => {
