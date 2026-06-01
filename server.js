@@ -248,35 +248,54 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   );
   res.json({ ok: true });
 
+  // Bloque de notificación completamente aislado — no puede afectar la respuesta ya enviada
   if ((status === 'confirmada' || status === 'cancelada') && r.rows.length) {
-    const { nombre, telefono, fecha, hora } = r.rows[0];
-    if (!telefono) return;
+    ;(async () => {
+      try {
+        const { nombre, telefono, fecha, hora } = r.rows[0];
+        console.log(`[notify] Iniciando bridge: status=${status} nombre=${nombre} telefono="${telefono}"`);
 
-    const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
-    if (!dr.rows.length) return;
-    const botSlug = dr.rows[0].bot_slug;
+        if (!telefono || telefono.trim() === '') {
+          console.warn('[notify] Abortado — teléfono vacío en la cita');
+          return;
+        }
 
-    const fechaStr = String(fecha).substring(0, 10);
-    const [y, m, d] = fechaStr.split('-');
-    const fechaFmt = `${d}/${m}/${y}`;
-    const horaFmt  = String(hora).substring(0, 5);
+        const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+        if (!dr.rows.length) {
+          console.error('[notify] Abortado — no se encontró bot_slug para doctor_id', req.user.id);
+          return;
+        }
+        const botSlug = dr.rows[0].bot_slug;
+        console.log(`[notify] bot_slug=${botSlug}`);
 
-    const text = status === 'confirmada'
-      ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaFmt}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
-      : `Hola, ${nombre}. Te informamos que tu cita del *${fechaFmt}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escríbenos de nuevo. 🙏`;
+        const fechaStr = String(fecha).substring(0, 10);
+        const [y, m, d] = fechaStr.split('-');
+        const fechaFmt = `${d}/${m}/${y}`;
+        const horaFmt  = String(hora).substring(0, 5);
 
-    const factoryUrl = process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com';
-    const apiKey     = process.env.INTERNAL_API_KEY  || '';
+        const text = status === 'confirmada'
+          ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaFmt}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
+          : `Hola, ${nombre}. Te informamos que tu cita del *${fechaFmt}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escríbenos de nuevo. 🙏`;
 
-    fetch(`${factoryUrl}/api/messages/send-notification`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-      body:    JSON.stringify({ botSlug, phone: telefono, text })
-    })
-      .then(resp => resp.ok
-        ? console.log(`[notify] ✅ ${status} → ${nombre} (${telefono})`)
-        : resp.json().then(e => console.error(`[notify] Error factory:`, e.error)))
-      .catch(e => console.error('[notify] fetch error:', e.message));
+        const factoryUrl = process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com';
+        const apiKey     = process.env.INTERNAL_API_KEY || '';
+        console.log(`[notify] POST → ${factoryUrl}/api/messages/send-notification`);
+
+        const resp = await fetch(`${factoryUrl}/api/messages/send-notification`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+          body:    JSON.stringify({ botSlug, phone: telefono, text })
+        });
+        const body = await resp.json();
+        if (resp.ok) {
+          console.log(`[notify] ✅ Enviado: ${status} → ${nombre} (${telefono})`);
+        } else {
+          console.error(`[notify] ❌ Factory respondió ${resp.status}:`, body);
+        }
+      } catch (err) {
+        console.error('[Bridge Error] Excepción en bloque de notificación:', err.message, err.stack);
+      }
+    })();
   }
 }));
 
