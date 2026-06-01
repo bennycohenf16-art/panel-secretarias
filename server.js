@@ -290,6 +290,74 @@ async function calcAvailableSlots(doctorId, fecha) {
   return slots;
 }
 
+// ── Helper centralizado de notificaciones de cambio de estado ─────────────────
+async function notificarCambioEstado(citaId, estadoAnterior, estadoNuevo, doctorId) {
+  const nuevoLimpio   = (estadoNuevo   || '').toLowerCase().trim();
+  const anteriorLimpio = (estadoAnterior || '').toLowerCase().trim();
+
+  const esCancelacion  = nuevoLimpio === 'cancelada';
+  const esConfirmacion = nuevoLimpio === 'confirmada';
+  if (!esCancelacion && !esConfirmacion) return;
+
+  console.log(`[BRIDGE] notificarCambioEstado | ID:${citaId} | ${anteriorLimpio} -> ${nuevoLimpio}`);
+
+  try {
+    const [apptRes, drRes] = await Promise.all([
+      pool.query(
+        'SELECT nombre, telefono, fecha, hora FROM appointments WHERE id=$1 AND doctor_id=$2',
+        [citaId, doctorId]
+      ),
+      pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [doctorId])
+    ]);
+
+    if (!apptRes.rows.length) { console.warn('[BRIDGE] Cita no encontrada:', citaId); return; }
+    if (!drRes.rows.length)   { console.warn('[BRIDGE] bot_slug no encontrado para doctor:', doctorId); return; }
+
+    const { nombre = '', telefono = '', fecha, hora } = apptRes.rows[0];
+    const botSlug = drRes.rows[0].bot_slug;
+
+    if (!telefono.trim()) { console.warn('[BRIDGE] Teléfono vacío en cita:', citaId); return; }
+
+    let fechaCitaStr = 'la fecha programada';
+    if (fecha) {
+      const isoDate = typeof fecha === 'string' ? fecha.split('T')[0] : fecha.toISOString().substring(0, 10);
+      const d = new Date(`${isoDate}T12:00:00`);
+      if (!isNaN(d)) fechaCitaStr = d.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+    }
+    const horaFmt = String(hora || '').substring(0, 5);
+
+    const text = esCancelacion
+      ? `Hola ${nombre}. Te informamos que tu cita programada para el día *${fechaCitaStr}* a las *${horaFmt} hrs* ha sido *CANCELADA* por el doctor. 🏥\n\nSi deseas reagendar en otro horario, escribe 'hola' en cualquier momento.`
+      : `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
+
+    const baseUrl  = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+    const apiKey   = process.env.INTERNAL_API_KEY || '';
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+        body:    JSON.stringify({ botSlug, phone: telefono, text }),
+        signal:  controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!resp.ok) {
+        const raw = await resp.text();
+        console.error(`[BRIDGE] ❌ Bot respondió ${resp.status}: ${raw.substring(0, 120)}`);
+      } else {
+        console.log(`[BRIDGE] ✅ Notificación enviada | ${nuevoLimpio} → ${nombre} (${telefono})`);
+      }
+    } catch (botError) {
+      clearTimeout(timeoutId);
+      console.error('[CRITICAL BRIDGE ERROR] El bot no respondió o falló, pero la base de datos ya se actualizó:', botError.message);
+    }
+  } catch (err) {
+    console.error('[BRIDGE] Error preparando la notificación:', err.message);
+  }
+}
+
 // ── Slots disponibles ─────────────────────────────────────────────────────────
 app.get('/api/appointments/available-slots', auth, h(async (req, res) => {
   const { fecha } = req.query;
@@ -372,11 +440,23 @@ app.post('/api/appointments', auth, h(async (req, res) => {
 
 app.put('/api/appointments/:id', auth, h(async (req, res) => {
   const { nombre, telefono, fecha, hora, motivo, status } = req.body;
+  const citaId   = req.params.id;
+  const doctorId = req.user.id;
+
+  const prev = await pool.query(
+    'SELECT status FROM appointments WHERE id=$1 AND doctor_id=$2',
+    [citaId, doctorId]
+  );
+  const estadoAnterior = (prev.rows[0]?.status || '').toLowerCase().trim();
+
   const r = await pool.query(
     'UPDATE appointments SET nombre=$1,telefono=$2,fecha=$3,hora=$4,motivo=$5,status=$6 WHERE id=$7 AND doctor_id=$8 RETURNING *',
-    [nombre, telefono || '', fecha, hora, motivo || '', status, req.params.id, req.user.id]
+    [nombre, telefono || '', fecha, hora, motivo || '', status, citaId, doctorId]
   );
   if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
+
+  await notificarCambioEstado(citaId, estadoAnterior, status, doctorId);
+
   res.json(r.rows[0]);
 }));
 
@@ -385,94 +465,22 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   const doctorId  = req.user.id;
   const nuevoEstado = (req.body.status || '').toLowerCase().trim();
 
-  // ── 1. Leer estado actual ────────────────────────────────────────────────────
   const prev = await pool.query(
-    'SELECT status, nombre, telefono, fecha, hora FROM appointments WHERE id=$1 AND doctor_id=$2',
+    'SELECT status FROM appointments WHERE id=$1 AND doctor_id=$2',
     [citaId, doctorId]
   );
   if (!prev.rows.length) return res.status(404).json({ error: 'No encontrada' });
+  const estadoAnterior = (prev.rows[0].status || '').toLowerCase().trim();
 
-  const estadoViejoLimpio  = (prev.rows[0].status  || '').toLowerCase().trim();
-  const estadoNuevoLimpio  = nuevoEstado;
+  console.log(`[CAMBIO ESTADO] Cita ID: ${citaId} | Estado Anterior: ${estadoAnterior} -> Nuevo Estado: ${nuevoEstado}`);
 
-  console.log(`[CAMBIO ESTADO] Cita ID: ${citaId} | Estado Anterior: ${estadoViejoLimpio} -> Nuevo Estado: ${estadoNuevoLimpio}`);
-
-  // ── 2. Ejecutar el UPDATE ────────────────────────────────────────────────────
   await pool.query(
     'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3',
-    [estadoNuevoLimpio, citaId, doctorId]
+    [nuevoEstado, citaId, doctorId]
   );
 
-  // ── 3. Disparar bridge solo si aplica ────────────────────────────────────────
-  const esCancelacion  = estadoNuevoLimpio === 'cancelada';
-  const esConfirmacion = estadoNuevoLimpio === 'confirmada';
+  await notificarCambioEstado(citaId, estadoAnterior, nuevoEstado, doctorId);
 
-  if (esCancelacion || esConfirmacion) {
-    const { nombre = '', telefono = '', fecha, hora } = prev.rows[0];
-
-    if (!telefono.trim()) {
-      console.warn('[BRIDGE] Abortado — teléfono vacío en la cita');
-    } else {
-      // Bridge completamente aislado: ningún error aquí puede bloquear res.json()
-      try {
-        const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [doctorId]);
-        if (!dr.rows.length) {
-          console.error('[BRIDGE] Abortado — bot_slug no encontrado para doctor_id', doctorId);
-        } else {
-          const botSlug = dr.rows[0].bot_slug;
-
-          let fechaCitaStr = 'Fecha no disponible';
-          if (fecha) {
-            const isoDate = typeof fecha === 'string'
-              ? fecha.split('T')[0]
-              : fecha.toISOString().substring(0, 10);
-            const d = new Date(`${isoDate}T12:00:00`);
-            if (!isNaN(d)) {
-              fechaCitaStr = d.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
-            }
-          }
-          const horaFmt = String(hora || '').substring(0, 5);
-
-          let text;
-          if (esCancelacion) {
-            text = `✅ Tu cita ha sido cancelada exitosamente.\n\nSi deseas volver a agendar, escribe 'hola' en cualquier momento. ¡Que te mejores! 🙏`;
-          } else {
-            text = `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
-          }
-
-          const baseUrl  = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
-          const finalUrl = `${baseUrl}/api/messages/send-notification`;
-          const apiKey   = process.env.INTERNAL_API_KEY || '';
-
-          const controller = new AbortController();
-          const timeoutId  = setTimeout(() => controller.abort(), 8000);
-
-          try {
-            const resp = await fetch(finalUrl, {
-              method:  'POST',
-              headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-              body:    JSON.stringify({ botSlug, phone: telefono, text }),
-              signal:  controller.signal
-            });
-            clearTimeout(timeoutId);
-            if (!resp.ok) {
-              const raw = await resp.text();
-              console.error(`[BRIDGE] ❌ Bot respondió ${resp.status}: ${raw.substring(0, 120)}`);
-            } else {
-              console.log(`[BRIDGE] ✅ Notificación de cancelación enviada al bot con éxito. → ${nombre} (${telefono})`);
-            }
-          } catch (botError) {
-            clearTimeout(timeoutId);
-            console.error('[CRITICAL BRIDGE ERROR] El bot no respondió o falló, pero la base de datos ya se actualizó:', botError.message);
-          }
-        }
-      } catch (bridgeSetupError) {
-        console.error('[BRIDGE] Error preparando la notificación:', bridgeSetupError.message);
-      }
-    }
-  }
-
-  // ── 4. Respuesta garantizada pase lo que pase con el bridge ─────────────────
   res.json({ ok: true });
 }));
 
