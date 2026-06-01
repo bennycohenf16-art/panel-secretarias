@@ -368,6 +368,62 @@ app.get('/api/analytics', auth, h(async (req, res) => {
   });
 }));
 
+// ── Lógica de recordatorios (también usada por el cron) ──────────────────────
+async function runReminders() {
+  console.log('[CRON Recordatorios] Iniciando revisión...');
+  const { rows: appts } = await pool.query(`
+    SELECT a.id, a.nombre, a.telefono, a.hora, d.bot_slug
+    FROM appointments a
+    JOIN doctors d ON a.doctor_id = d.id
+    WHERE a.status        = 'confirmada'
+      AND a.reminder_sent = FALSE
+      AND a.fecha         = CURRENT_DATE + INTERVAL '1 day'
+  `);
+
+  if (!appts.length) {
+    console.log('[CRON Recordatorios] Sin citas confirmadas para mañana.');
+    return { enviados: 0, total: 0 };
+  }
+
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY || '';
+  let enviados  = 0;
+
+  for (const appt of appts) {
+    if (!appt.telefono || appt.telefono.trim() === '') {
+      console.warn(`[CRON Recordatorios] Skipping id=${appt.id} — teléfono vacío`);
+      continue;
+    }
+    try {
+      const horaFmt = String(appt.hora).substring(0, 5);
+      const text    = `¡Hola, ${appt.nombre}! ⏰ Te recordamos que el día de mañana tienes una cita agendada a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
+
+      const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+        body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text })
+      });
+      const raw = await resp.text();
+      if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
+
+      await pool.query('UPDATE appointments SET reminder_sent=TRUE WHERE id=$1', [appt.id]);
+      enviados++;
+      console.log(`[CRON Recordatorios] ✅ id=${appt.id} → ${appt.nombre} (${appt.telefono})`);
+    } catch (err) {
+      console.error(`[CRON Recordatorios] ❌ id=${appt.id} (${appt.nombre}):`, err.message);
+    }
+  }
+
+  console.log(`[CRON Recordatorios] Enviados ${enviados} de ${appts.length} mensajes para el día de mañana.`);
+  return { enviados, total: appts.length };
+}
+
+// Endpoint de prueba manual — solo admin autenticado
+app.post('/api/admin/run-reminders', auth, h(async (req, res) => {
+  const result = await runReminders();
+  res.json({ ok: true, ...result });
+}));
+
 // ── Estado del bot — puente hacia bot-factory ────────────────────────────────
 app.get('/api/bot-status', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
@@ -398,56 +454,10 @@ initDB()
     app.listen(PORT, () => console.log(`\n🏥 Panel Secretarias en http://localhost:${PORT}\n`));
 
     // ── Recordatorios automáticos — 09:00 AM hora CDMX todos los días ──────────
-    cron.schedule('0 9 * * *', async () => {
-      console.log('[CRON Recordatorios] Iniciando revisión...');
-      try {
-        const { rows: appts } = await pool.query(`
-          SELECT a.id, a.nombre, a.telefono, a.hora, d.bot_slug
-          FROM appointments a
-          JOIN doctors d ON a.doctor_id = d.id
-          WHERE a.status        = 'confirmada'
-            AND a.reminder_sent = FALSE
-            AND a.fecha         = CURRENT_DATE + INTERVAL '1 day'
-        `);
-
-        if (!appts.length) {
-          console.log('[CRON Recordatorios] Sin citas confirmadas para mañana.');
-          return;
-        }
-
-        const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
-        const apiKey  = process.env.INTERNAL_API_KEY || '';
-        let enviados  = 0;
-
-        for (const appt of appts) {
-          if (!appt.telefono || appt.telefono.trim() === '') {
-            console.warn(`[CRON Recordatorios] Skipping id=${appt.id} — teléfono vacío`);
-            continue;
-          }
-          try {
-            const horaFmt = String(appt.hora).substring(0, 5);
-            const text    = `¡Hola, ${appt.nombre}! ⏰ Te recordamos que el día de mañana tienes una cita agendada a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
-
-            const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
-              method:  'POST',
-              headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-              body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text })
-            });
-            const raw = await resp.text();
-            if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
-
-            await pool.query('UPDATE appointments SET reminder_sent=TRUE WHERE id=$1', [appt.id]);
-            enviados++;
-            console.log(`[CRON Recordatorios] ✅ id=${appt.id} → ${appt.nombre} (${appt.telefono})`);
-          } catch (err) {
-            console.error(`[CRON Recordatorios] ❌ id=${appt.id} (${appt.nombre}):`, err.message);
-          }
-        }
-
-        console.log(`[CRON Recordatorios] Enviados ${enviados} de ${appts.length} mensajes para el día de mañana.`);
-      } catch (err) {
-        console.error('[CRON Recordatorios] Error crítico en la tarea:', err.message);
-      }
+    cron.schedule('0 9 * * *', () => {
+      runReminders().catch(err =>
+        console.error('[CRON Recordatorios] Error crítico en la tarea:', err.message)
+      );
     }, { timezone: 'America/Mexico_City' });
 
     console.log('[CRON Recordatorios] Tarea programada — 09:00 AM CDMX cada día.');
