@@ -12,12 +12,31 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
   const [error, setError] = useState('');
   const [existing, setExisting] = useState([]);
 
+  const [blockingSlots, setBlockingSlots] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   useEffect(() => {
     fetch('/api/blocked-slots', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => setExisting(Array.isArray(d) ? d : [])).catch(() => {});
   }, [token]);
+
+  useEffect(() => {
+    if (form.tipo !== 'hora' || !form.fecha) {
+      setBlockingSlots([]);
+      return;
+    }
+    setForm(p => ({ ...p, hora: '' }));
+    setLoadingSlots(true);
+    fetch(`/api/appointments/available-slots?fecha=${form.fecha}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(d => setBlockingSlots(Array.isArray(d.slots) ? d.slots : []))
+      .catch(() => setBlockingSlots([]))
+      .finally(() => setLoadingSlots(false));
+  }, [form.fecha, form.tipo, token]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -36,6 +55,7 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
       if (!r.ok) { setError(d.error || 'Error al guardar'); setSaving(false); return; }
       setExisting(prev => [...prev, d]);
       setForm({ fecha: '', tipo: 'dia', hora: '', motivo: '' });
+      setBlockingSlots([]);
       onSaved?.();
     } catch { setError('Error de conexión'); }
     setSaving(false);
@@ -103,7 +123,39 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
               <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 4, color: '#444' }}>
                 Hora *
               </label>
-              <input required type="time" value={form.hora} onChange={e => set('hora', e.target.value)} style={fi} />
+
+              {!form.fecha ? (
+                <select disabled style={{ ...fi, color: '#aaa', background: '#f7f7f7' }}>
+                  <option>Selecciona primero una fecha</option>
+                </select>
+              ) : loadingSlots ? (
+                <select disabled style={{ ...fi, color: '#aaa', background: '#f7f7f7' }}>
+                  <option>Cargando horarios disponibles...</option>
+                </select>
+              ) : blockingSlots.length === 0 ? (
+                <div style={{
+                  padding: '10px 12px', borderRadius: 8, fontSize: 13,
+                  background: '#fff8e1', border: '1.5px solid #ffe082', color: '#7c4a00'
+                }}>
+                  ⚠️ No hay horarios disponibles para bloquear en esta fecha (agenda llena o día bloqueado).
+                </div>
+              ) : (
+                <select
+                  required
+                  value={form.hora}
+                  onChange={e => set('hora', e.target.value)}
+                  style={fi}
+                >
+                  <option value="">— Elige una hora —</option>
+                  {blockingSlots.map(slot => (
+                    <option key={slot} value={slot}>{slot} hrs</option>
+                  ))}
+                </select>
+              )}
+
+              <div style={{ fontSize: 12, color: '#999', marginTop: 6, lineHeight: 1.45 }}>
+                ⚠️ Solo puedes bloquear horarios que no tengan citas activas. Si necesitas bloquear una hora ocupada, debes cancelar la cita del paciente desde la Agenda primero.
+              </div>
             </div>
           )}
 
@@ -115,12 +167,22 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
               placeholder="Ej: Congreso médico, junta..." style={fi} />
           </div>
 
-          <button type="submit" disabled={saving} style={{
-            padding: '11px', borderRadius: 9, border: 'none',
-            background: saving ? '#ccc' : 'linear-gradient(135deg, #e53935, #b71c1c)',
-            color: '#fff', fontWeight: 700, cursor: saving ? 'default' : 'pointer', fontSize: 14,
-            boxShadow: saving ? 'none' : '0 4px 12px rgba(229,57,53,.3)'
-          }}>
+          <button
+            type="submit"
+            disabled={saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0))}
+            style={{
+              padding: '11px', borderRadius: 9, border: 'none',
+              background: (saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
+                ? '#ccc'
+                : 'linear-gradient(135deg, #e53935, #b71c1c)',
+              color: '#fff', fontWeight: 700,
+              cursor: (saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
+                ? 'default' : 'pointer',
+              fontSize: 14,
+              boxShadow: (saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
+                ? 'none' : '0 4px 12px rgba(229,57,53,.3)'
+            }}
+          >
             {saving ? 'Guardando...' : '🔒 Bloquear'}
           </button>
         </form>
