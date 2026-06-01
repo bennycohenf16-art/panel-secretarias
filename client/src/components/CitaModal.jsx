@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const fi = {
   width: '100%', padding: '10px 12px', borderRadius: 8,
@@ -17,9 +17,26 @@ export default function CitaModal({ cita, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [slots, setSlots] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  const token = localStorage.getItem('panel_token');
+
+  // Para nuevas citas: cargar slots disponibles cuando cambia la fecha
+  useEffect(() => {
+    if (isEdit || !form.fecha) { setSlots([]); return; }
+    setLoadingSlots(true);
+    setForm(p => ({ ...p, hora: '' }));
+    fetch(`/api/appointments/available-slots?fecha=${form.fecha}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(d => { setSlots(d.slots || []); })
+      .catch(() => setSlots([]))
+      .finally(() => setLoadingSlots(false));
+  }, [form.fecha, isEdit, token]);
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
-  const token = localStorage.getItem('panel_token');
 
   const submit = async (e) => {
     e.preventDefault();
@@ -104,10 +121,21 @@ export default function CitaModal({ cita, onClose, onSaved }) {
               <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 5, color: '#444' }}>
                 Hora *
               </label>
-              <input required type="time" value={form.hora} onChange={e => set('hora', e.target.value)}
-                style={fi}
-                onFocus={e => e.target.style.borderColor = '#25d366'}
-                onBlur={e => e.target.style.borderColor = '#ddd'} />
+              {isEdit ? (
+                <input required type="time" value={form.hora} onChange={e => set('hora', e.target.value)}
+                  style={fi}
+                  onFocus={e => e.target.style.borderColor = '#25d366'}
+                  onBlur={e => e.target.style.borderColor = '#ddd'} />
+              ) : (
+                <select required value={form.hora} onChange={e => set('hora', e.target.value)}
+                  disabled={!form.fecha || loadingSlots}
+                  style={{ ...fi, background: '#fff', cursor: 'pointer', color: form.hora ? '#000' : '#999' }}>
+                  <option value="">
+                    {!form.fecha ? 'Elige fecha primero' : loadingSlots ? 'Cargando...' : slots.length === 0 ? 'Sin horarios disponibles' : 'Selecciona hora'}
+                  </option>
+                  {slots.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
             </div>
           </div>
 
@@ -142,13 +170,17 @@ export default function CitaModal({ cita, onClose, onSaved }) {
             }}>
               Cancelar
             </button>
-            <button type="submit" disabled={saving} style={{
-              flex: 1, padding: '11px', borderRadius: 9, border: 'none',
-              background: saving ? '#ccc' : 'linear-gradient(135deg, #25d366, #20b858)',
-              color: '#fff', fontWeight: 700, cursor: saving ? 'default' : 'pointer', fontSize: 14,
-              boxShadow: saving ? 'none' : '0 4px 12px rgba(37,211,102,.3)'
-            }}>
-              {saving ? 'Guardando...' : isEdit ? 'Guardar Cambios' : 'Agregar Cita'}
+            <button type="submit"
+              disabled={saving || (!isEdit && slots.length === 0)}
+              style={{
+                flex: 1, padding: '11px', borderRadius: 9, border: 'none',
+                background: (saving || (!isEdit && slots.length === 0)) ? '#ccc' : 'linear-gradient(135deg, #25d366, #20b858)',
+                color: '#fff', fontWeight: 700,
+                cursor: (saving || (!isEdit && slots.length === 0)) ? 'default' : 'pointer',
+                fontSize: 14,
+                boxShadow: (saving || (!isEdit && slots.length === 0)) ? 'none' : '0 4px 12px rgba(37,211,102,.3)'
+              }}>
+              {saving ? 'Guardando...' : isEdit ? 'Guardar Cambios' : slots.length === 0 && form.fecha ? 'Sin disponibilidad' : 'Agregar Cita'}
             </button>
           </div>
         </form>

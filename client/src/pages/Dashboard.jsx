@@ -4,6 +4,7 @@ import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 import BotStatusWidget from '../components/BotStatusWidget';
 import WaitingListPanel from '../components/WaitingListPanel';
+import BlockedSlotsModal from '../components/BlockedSlotsModal';
 
 const DOW_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
@@ -149,6 +150,7 @@ export default function Dashboard() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tab, setTab] = useState('agenda');
+  const [showBlockedModal, setShowBlockedModal] = useState(false);
 
   const api = useCallback((url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
@@ -348,11 +350,18 @@ export default function Dashboard() {
                 </button>
               )}
             </div>
-            <button onClick={() => setShowAdd(true)}
-              className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-5 py-2.5 rounded-xl text-white font-bold text-sm cursor-pointer border-0"
-              style={{ background: 'linear-gradient(135deg, #1a1a2e, #2d2d4e)', boxShadow: '0 4px 12px rgba(26,26,46,.3)' }}>
-              <span className="text-base font-bold">+</span> Nueva Cita
-            </button>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button onClick={() => setShowBlockedModal(true)}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer border-0"
+                style={{ background: 'linear-gradient(135deg, #e53935, #b71c1c)', color: '#fff', boxShadow: '0 4px 12px rgba(229,57,53,.3)' }}>
+                🔒 Bloquear
+              </button>
+              <button onClick={() => setShowAdd(true)}
+                className="flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-white font-bold text-sm cursor-pointer border-0"
+                style={{ background: 'linear-gradient(135deg, #1a1a2e, #2d2d4e)', boxShadow: '0 4px 12px rgba(26,26,46,.3)' }}>
+                <span className="text-base font-bold">+</span> Nueva Cita
+              </button>
+            </div>
           </div>
         </div>
 
@@ -542,6 +551,7 @@ export default function Dashboard() {
       {showAdd && <CitaModal cita={null} onClose={() => setShowAdd(false)} onSaved={load} />}
       {editing  && <CitaModal cita={editing} onClose={() => setEditing(null)} onSaved={load} />}
       {historyPhone && <PatientHistoryModal telefono={historyPhone} onClose={() => setHistoryPhone(null)} />}
+      {showBlockedModal && <BlockedSlotsModal onClose={() => setShowBlockedModal(false)} onSaved={load} />}
 
       {/* Delete confirm */}
       {confirmDelete && (

@@ -83,6 +83,16 @@ async function initDB() {
   `);
   await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS fecha_preferida DATE`);
   await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS origen VARCHAR(50) DEFAULT 'manual'`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blocked_slots (
+      id         SERIAL PRIMARY KEY,
+      doctor_id  INT NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+      fecha      DATE NOT NULL,
+      hora       TIME NULL,
+      motivo     TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   console.log('[db] Schema panel-secretarias OK');
 
@@ -213,6 +223,104 @@ app.post('/api/webhook', h(async (req, res) => {
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7)',
     [r.rows[0].id, nombre, telefono || '', fecha, hora, motivo || '', 'whatsapp']
   );
+  res.json({ ok: true });
+}));
+
+// ── Helper: slots disponibles (comparte lógica con bot-engine) ────────────────
+const DIAS_ES_P = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+
+async function calcAvailableSlots(doctorId, fecha) {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [doctorId]);
+  if (!dr.rows.length) return [];
+  const botSlug = dr.rows[0].bot_slug;
+
+  let schedule = {};
+  try {
+    const { rows } = await pool.query("SELECT config FROM bots WHERE status='deployed'");
+    for (const row of rows) {
+      const c = JSON.parse(row.config);
+      if (c.panelSlug === botSlug) { schedule = c.schedule || {}; break; }
+    }
+  } catch {}
+
+  const diaNombre = DIAS_ES_P[new Date(fecha + 'T12:00:00').getDay()];
+  const dayConfig = schedule.days?.[diaNombre];
+  if (!dayConfig?.active) return [];
+
+  const slotMin = schedule.slotDuration || 30;
+  const [sH, sM] = dayConfig.start.split(':').map(Number);
+  const [eH, eM] = dayConfig.end.split(':').map(Number);
+  const lunchFrom = schedule.lunchBreak?.active ? schedule.lunchBreak.from : null;
+  const lunchTo   = schedule.lunchBreak?.active ? schedule.lunchBreak.to   : null;
+
+  const { rows: diaBlq } = await pool.query(
+    'SELECT id FROM blocked_slots WHERE doctor_id=$1 AND fecha=$2 AND hora IS NULL LIMIT 1',
+    [doctorId, fecha]
+  );
+  if (diaBlq.length) return [];
+
+  const { rows: apptRows } = await pool.query(
+    "SELECT hora FROM appointments WHERE doctor_id=$1 AND fecha=$2 AND status!='cancelada'",
+    [doctorId, fecha]
+  );
+  const { rows: bloqRows } = await pool.query(
+    'SELECT hora FROM blocked_slots WHERE doctor_id=$1 AND fecha=$2 AND hora IS NOT NULL',
+    [doctorId, fecha]
+  );
+  const ocupadas = new Set([
+    ...apptRows.map(r => String(r.hora).slice(0, 5)),
+    ...bloqRows.map(r => String(r.hora).slice(0, 5))
+  ]);
+
+  const slots = [];
+  let cur = sH * 60 + sM;
+  const end = eH * 60 + eM;
+  while (cur + slotMin <= end) {
+    const h = String(Math.floor(cur / 60)).padStart(2, '0');
+    const m = String(cur % 60).padStart(2, '0');
+    const t = `${h}:${m}`;
+    if (lunchFrom && lunchTo) {
+      const [lh, lm2] = lunchFrom.split(':').map(Number);
+      const [leh, lem] = lunchTo.split(':').map(Number);
+      if (cur >= lh * 60 + lm2 && cur < leh * 60 + lem) { cur += slotMin; continue; }
+    }
+    if (!ocupadas.has(t)) slots.push(t);
+    cur += slotMin;
+  }
+  return slots;
+}
+
+// ── Slots disponibles ─────────────────────────────────────────────────────────
+app.get('/api/appointments/available-slots', auth, h(async (req, res) => {
+  const { fecha } = req.query;
+  if (!fecha) return res.status(400).json({ error: 'Falta fecha' });
+  const slots = await calcAvailableSlots(req.user.id, fecha);
+  res.json({ slots });
+}));
+
+// ── Bloqueos ──────────────────────────────────────────────────────────────────
+app.get('/api/blocked-slots', auth, h(async (req, res) => {
+  const { fecha } = req.query;
+  const params = [req.user.id];
+  let q = 'SELECT * FROM blocked_slots WHERE doctor_id=$1';
+  if (fecha) { q += ' AND fecha=$2'; params.push(fecha); }
+  q += ' ORDER BY fecha ASC, hora ASC NULLS FIRST';
+  const { rows } = await pool.query(q, params);
+  res.json(rows);
+}));
+
+app.post('/api/blocked-slots', auth, h(async (req, res) => {
+  const { fecha, hora, motivo } = req.body;
+  if (!fecha) return res.status(400).json({ error: 'Falta fecha' });
+  const { rows } = await pool.query(
+    'INSERT INTO blocked_slots (doctor_id,fecha,hora,motivo) VALUES ($1,$2,$3,$4) RETURNING *',
+    [req.user.id, fecha, hora || null, motivo || null]
+  );
+  res.json(rows[0]);
+}));
+
+app.delete('/api/blocked-slots/:id', auth, h(async (req, res) => {
+  await pool.query('DELETE FROM blocked_slots WHERE id=$1 AND doctor_id=$2', [req.params.id, req.user.id]);
   res.json({ ok: true });
 }));
 
