@@ -268,14 +268,28 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
         const botSlug = dr.rows[0].bot_slug;
         console.log(`[notify] bot_slug=${botSlug}`);
 
-        // pg devuelve DATE como objeto Date en UTC midnight; T12:00:00 evita salto de día al convertir a México
-        const fechaCita = new Date(`${String(fecha).substring(0, 10)}T12:00:00`)
-          .toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+        console.log('[DEBUG Bridge] fecha raw:', fecha, '| type:', typeof fecha, '| hora raw:', hora);
+
+        // pg devuelve DATE como objeto Date nativo — .toISOString() extrae YYYY-MM-DD limpio
+        // T12:00:00 (sin Z) se interpreta en hora local (Mexico City) y evita salto de día UTC
+        let fechaCitaStr = 'Fecha no disponible';
+        if (fecha) {
+          const isoDate = typeof fecha === 'string'
+            ? fecha.split('T')[0]
+            : fecha.toISOString().substring(0, 10);
+          const parsedDate = new Date(`${isoDate}T12:00:00`);
+          if (!isNaN(parsedDate)) {
+            fechaCitaStr = parsedDate.toLocaleDateString('es-MX', {
+              weekday: 'long', day: 'numeric', month: 'long'
+            });
+          }
+        }
+        console.log('[DEBUG Bridge] fechaCitaStr:', fechaCitaStr);
         const horaFmt = String(hora).substring(0, 5);
 
         const text = status === 'confirmada'
-          ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCita}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
-          : `Hola, ${nombre}. Te informamos que tu cita para el *${fechaCita}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escribe de nuevo a este chat. 🙏`;
+          ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
+          : `Hola, ${nombre}. Te informamos que tu cita para el *${fechaCitaStr}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escribe de nuevo a este chat. 🙏`;
 
         const baseUrl    = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
         const finalUrl   = `${baseUrl}/api/messages/send-notification`;
