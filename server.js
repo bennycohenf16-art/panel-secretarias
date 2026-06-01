@@ -366,6 +366,20 @@ app.get('/api/analytics', auth, h(async (req, res) => {
   });
 }));
 
+// ── Estado del bot — puente hacia bot-factory ────────────────────────────────
+app.get('/api/bot-status', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY || '';
+  const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/status`, {
+    headers: { 'x-internal-key': apiKey }
+  });
+  if (!resp.ok) return res.status(resp.status).json({ error: 'Error al consultar bot-factory' });
+  res.json(await resp.json());
+}));
+
 // ── Manejo global de errores — evita que el servidor se apague ────────────────
 app.use((err, req, res, _next) => {
   console.error('[error]', err.message);

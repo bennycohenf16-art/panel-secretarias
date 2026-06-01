@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
+import BotStatusWidget from '../components/BotStatusWidget';
 
 const DOW_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
@@ -235,6 +236,12 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+
+            {/* Conectividad del bot en el drawer */}
+            <div className="px-5 pb-2">
+              <BotStatusWidget token={token} />
+            </div>
+
             <div className="flex-1" />
 
             {/* Logout */}
@@ -294,6 +301,8 @@ export default function Dashboard() {
 
       {/* ── Content ───────────────────────────────────────────────────────── */}
       <div className="max-w-6xl mx-auto px-4 py-5 sm:py-6">
+
+        <BotStatusWidget token={token} />
 
         {tab === 'analytics' ? <AnalyticsContent token={token} /> : (<>
 
