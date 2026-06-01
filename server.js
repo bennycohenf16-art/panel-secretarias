@@ -277,11 +277,12 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
           ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaFmt}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
           : `Hola, ${nombre}. Te informamos que tu cita del *${fechaFmt}* a las *${horaFmt} hrs* ha sido *CANCELADA*. Si deseas reagendar, escríbenos de nuevo. 🙏`;
 
-        const factoryUrl = process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com';
+        const baseUrl    = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+        const finalUrl   = `${baseUrl}/api/messages/send-notification`;
         const apiKey     = process.env.INTERNAL_API_KEY || '';
-        console.log(`[notify] POST → ${factoryUrl}/api/messages/send-notification`);
+        console.log(`[notify] POST → ${finalUrl}`);
 
-        const resp = await fetch(`${factoryUrl}/api/messages/send-notification`, {
+        const resp = await fetch(finalUrl, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
           body:    JSON.stringify({ botSlug, phone: telefono, text })
