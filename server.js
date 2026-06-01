@@ -404,10 +404,10 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
   );
 
   // ── 3. Disparar bridge solo si aplica ────────────────────────────────────────
-  const esConfirmacion             = estadoNuevoLimpio === 'confirmada';
-  const esCancelacionDesdeConfirmada = estadoViejoLimpio === 'confirmada' && estadoNuevoLimpio === 'cancelada';
+  const esCancelacion  = estadoNuevoLimpio === 'cancelada';
+  const esConfirmacion = estadoNuevoLimpio === 'confirmada';
 
-  if (esConfirmacion || esCancelacionDesdeConfirmada) {
+  if (esCancelacion || esConfirmacion) {
     const { nombre = '', telefono = '', fecha, hora } = prev.rows[0];
 
     if (!telefono.trim()) {
@@ -433,9 +433,12 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
           }
           const horaFmt = String(hora || '').substring(0, 5);
 
-          const text = esConfirmacion
-            ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
-            : `✅ Tu cita ha sido cancelada exitosamente.\n\nSi deseas volver a agendar, escribe 'hola' en cualquier momento. ¡Que te mejores! 🙏`;
+          let text;
+          if (esCancelacion) {
+            text = `✅ Tu cita ha sido cancelada exitosamente.\n\nSi deseas volver a agendar, escribe 'hola' en cualquier momento. ¡Que te mejores! 🙏`;
+          } else {
+            text = `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
+          }
 
           const baseUrl  = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
           const finalUrl = `${baseUrl}/api/messages/send-notification`;
