@@ -381,36 +381,43 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
 }));
 
 app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
+  const citaId    = req.params.id;
+  const doctorId  = req.user.id;
   const nuevoEstado = (req.body.status || '').toLowerCase().trim();
-  const citaId = req.params.id;
 
+  // ── 1. Leer estado actual ────────────────────────────────────────────────────
   const prev = await pool.query(
-    'SELECT status FROM appointments WHERE id=$1 AND doctor_id=$2',
-    [citaId, req.user.id]
+    'SELECT status, nombre, telefono, fecha, hora FROM appointments WHERE id=$1 AND doctor_id=$2',
+    [citaId, doctorId]
   );
-  const estadoAnterior = (prev.rows[0]?.status || '').toLowerCase().trim();
+  if (!prev.rows.length) return res.status(404).json({ error: 'No encontrada' });
 
-  console.log(`[CAMBIO ESTADO] Cita ID: ${citaId} | Estado Anterior: ${estadoAnterior} -> Nuevo Estado: ${nuevoEstado}`);
+  const estadoViejoLimpio  = (prev.rows[0].status  || '').toLowerCase().trim();
+  const estadoNuevoLimpio  = nuevoEstado;
 
-  const r = await pool.query(
-    'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3 RETURNING nombre, telefono, fecha, hora',
-    [nuevoEstado, citaId, req.user.id]
+  console.log(`[CAMBIO ESTADO] Cita ID: ${citaId} | Estado Anterior: ${estadoViejoLimpio} -> Nuevo Estado: ${estadoNuevoLimpio}`);
+
+  // ── 2. Ejecutar el UPDATE ────────────────────────────────────────────────────
+  await pool.query(
+    'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3',
+    [estadoNuevoLimpio, citaId, doctorId]
   );
-  if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
 
-  const { nombre, telefono, fecha, hora } = r.rows[0];
-
-  const esConfirmacion = nuevoEstado === 'confirmada';
-  const esCancelacionDesdeConfirmada = estadoAnterior === 'confirmada' && nuevoEstado === 'cancelada';
+  // ── 3. Disparar bridge solo si aplica ────────────────────────────────────────
+  const esConfirmacion             = estadoNuevoLimpio === 'confirmada';
+  const esCancelacionDesdeConfirmada = estadoViejoLimpio === 'confirmada' && estadoNuevoLimpio === 'cancelada';
 
   if (esConfirmacion || esCancelacionDesdeConfirmada) {
-    if (!telefono || telefono.trim() === '') {
-      console.warn('[notify] Abortado — teléfono vacío en la cita');
+    const { nombre = '', telefono = '', fecha, hora } = prev.rows[0];
+
+    if (!telefono.trim()) {
+      console.warn('[BRIDGE] Abortado — teléfono vacío en la cita');
     } else {
+      // Bridge completamente aislado: ningún error aquí puede bloquear res.json()
       try {
-        const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+        const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [doctorId]);
         if (!dr.rows.length) {
-          console.error('[notify] Abortado — no se encontró bot_slug para doctor_id', req.user.id);
+          console.error('[BRIDGE] Abortado — bot_slug no encontrado para doctor_id', doctorId);
         } else {
           const botSlug = dr.rows[0].bot_slug;
 
@@ -419,14 +426,12 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
             const isoDate = typeof fecha === 'string'
               ? fecha.split('T')[0]
               : fecha.toISOString().substring(0, 10);
-            const parsedDate = new Date(`${isoDate}T12:00:00`);
-            if (!isNaN(parsedDate)) {
-              fechaCitaStr = parsedDate.toLocaleDateString('es-MX', {
-                weekday: 'long', day: 'numeric', month: 'long'
-              });
+            const d = new Date(`${isoDate}T12:00:00`);
+            if (!isNaN(d)) {
+              fechaCitaStr = d.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
             }
           }
-          const horaFmt = String(hora).substring(0, 5);
+          const horaFmt = String(hora || '').substring(0, 5);
 
           const text = esConfirmacion
             ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
@@ -435,26 +440,36 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
           const baseUrl  = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
           const finalUrl = `${baseUrl}/api/messages/send-notification`;
           const apiKey   = process.env.INTERNAL_API_KEY || '';
-          console.log(`[notify] POST → ${finalUrl} | botSlug=${botSlug} | telefono=${telefono}`);
 
-          const resp = await fetch(finalUrl, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-            body:    JSON.stringify({ botSlug, phone: telefono, text })
-          });
-          const raw = await resp.text();
-          if (!resp.ok) {
-            console.error(`[notify] ❌ Bot respondió ${resp.status}: ${raw.substring(0, 120)}`);
-          } else {
-            console.log(`[notify] ✅ Enviado: ${nuevoEstado} → ${nombre} (${telefono})`);
+          const controller = new AbortController();
+          const timeoutId  = setTimeout(() => controller.abort(), 8000);
+
+          try {
+            const resp = await fetch(finalUrl, {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+              body:    JSON.stringify({ botSlug, phone: telefono, text }),
+              signal:  controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (!resp.ok) {
+              const raw = await resp.text();
+              console.error(`[BRIDGE] ❌ Bot respondió ${resp.status}: ${raw.substring(0, 120)}`);
+            } else {
+              console.log(`[BRIDGE] ✅ Notificación de cancelación enviada al bot con éxito. → ${nombre} (${telefono})`);
+            }
+          } catch (botError) {
+            clearTimeout(timeoutId);
+            console.error('[CRITICAL BRIDGE ERROR] El bot no respondió o falló, pero la base de datos ya se actualizó:', botError.message);
           }
         }
-      } catch (err) {
-        console.error('[Bridge Error]', err.message, err.stack);
+      } catch (bridgeSetupError) {
+        console.error('[BRIDGE] Error preparando la notificación:', bridgeSetupError.message);
       }
     }
   }
 
+  // ── 4. Respuesta garantizada pase lo que pase con el bridge ─────────────────
   res.json({ ok: true });
 }));
 
