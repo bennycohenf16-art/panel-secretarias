@@ -432,10 +432,11 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
 
   const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
   const apiKey  = process.env.INTERNAL_API_KEY || '';
-  const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
+  // send-offer: además de enviar el WA, guarda conv_state ESPERANDO_OFERTA en bot-factory
+  const resp = await fetch(`${baseUrl}/api/messages/send-offer`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-    body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text })
+    body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text, fecha, hora, nombre, telefono })
   });
   const raw = await resp.text();
   if (!resp.ok) throw new Error(`Bot Factory: ${raw.substring(0, 200)}`);
