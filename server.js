@@ -454,7 +454,7 @@ initDB()
     app.listen(PORT, () => console.log(`\n🏥 Panel Secretarias en http://localhost:${PORT}\n`));
 
     // ── Recordatorios automáticos — 09:00 AM hora CDMX todos los días ──────────
-    cron.schedule('0 9 * * *', () => {
+    cron.schedule('20 10 * * *', () => {
       runReminders().catch(err =>
         console.error('[CRON Recordatorios] Error crítico en la tarea:', err.message)
       );
