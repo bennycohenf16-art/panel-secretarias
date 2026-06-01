@@ -262,6 +262,44 @@ app.get('/api/patients/:telefono', auth, h(async (req, res) => {
   res.json(r.rows);
 }));
 
+// ── Analíticas ────────────────────────────────────────────────────────────────
+app.get('/api/analytics', auth, h(async (req, res) => {
+  const did = req.user.id;
+  const [sourceRes, statusRes, dowRes] = await Promise.all([
+    // A: citas por origen en los últimos 30 días
+    pool.query(
+      `SELECT source, COUNT(*)::int AS count
+       FROM appointments
+       WHERE doctor_id = $1
+         AND created_at >= NOW() - INTERVAL '30 days'
+       GROUP BY source`,
+      [did]
+    ),
+    // B: distribución por estado (histórico completo)
+    pool.query(
+      `SELECT status, COUNT(*)::int AS count
+       FROM appointments
+       WHERE doctor_id = $1
+       GROUP BY status`,
+      [did]
+    ),
+    // C: demanda por día de semana (0 = Dom … 6 = Sáb)
+    pool.query(
+      `SELECT EXTRACT(DOW FROM fecha)::int AS dow, COUNT(*)::int AS count
+       FROM appointments
+       WHERE doctor_id = $1
+       GROUP BY dow
+       ORDER BY dow`,
+      [did]
+    ),
+  ]);
+  res.json({
+    bySource:    sourceRes.rows,
+    byStatus:    statusRes.rows,
+    byDayOfWeek: dowRes.rows,
+  });
+}));
+
 // ── Manejo global de errores — evita que el servidor se apague ────────────────
 app.use((err, req, res, _next) => {
   console.error('[error]', err.message);

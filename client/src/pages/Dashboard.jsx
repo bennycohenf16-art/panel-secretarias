@@ -3,6 +3,115 @@ import { useNavigate } from 'react-router-dom';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 
+const DOW_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+function Bar({ pct, color }) {
+  return (
+    <div className="w-full bg-gray-100 rounded-full h-2">
+      <div style={{ width: `${pct}%`, background: color }} className="h-2 rounded-full transition-all" />
+    </div>
+  );
+}
+
+function AnalyticsContent({ token }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/analytics', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return (
+    <div className="py-16 text-center text-gray-400">
+      <div className="text-4xl mb-2">⏳</div><p>Cargando analíticas...</p>
+    </div>
+  );
+  if (!data) return <div className="py-16 text-center text-gray-400">Sin datos disponibles.</div>;
+
+  // Card 1: automatización
+  const totalSrc = data.bySource.reduce((s, r) => s + r.count, 0);
+  const botCount = (data.bySource.find(r => r.source === 'whatsapp')?.count) || 0;
+  const autoPct = totalSrc > 0 ? Math.round(botCount / totalSrc * 100) : 0;
+
+  // Card 2: estados
+  const totalSt = data.byStatus.reduce((s, r) => s + r.count, 0);
+  const stMap = Object.fromEntries(data.byStatus.map(r => [r.status, r.count]));
+  const stRows = [
+    { label: 'Confirmadas', key: 'confirmada', color: '#22c55e' },
+    { label: 'Pendientes',  key: 'pendiente',  color: '#f59e0b' },
+    { label: 'Canceladas',  key: 'cancelada',  color: '#ef4444' },
+  ];
+
+  // Card 3: DOW
+  const maxDow = data.byDayOfWeek.reduce((m, r) => Math.max(m, r.count), 1);
+  const dowMap = Object.fromEntries(data.byDayOfWeek.map(r => [r.dow, r.count]));
+
+  return (
+    <div className="space-y-4">
+      {/* Card 1: Automatización */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ borderTop: '3px solid #6366f1' }}>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-3xl font-extrabold text-indigo-600">{autoPct}%</div>
+            <div className="text-gray-500 text-sm mt-0.5">Citas automatizadas (WhatsApp)</div>
+          </div>
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-indigo-50">🤖</div>
+        </div>
+        <Bar pct={autoPct} color="#6366f1" />
+        <div className="text-xs text-gray-400 mt-2">{botCount} de {totalSrc} en los últimos 30 días</div>
+      </div>
+
+      {/* Card 2: Estados */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ borderTop: '3px solid #22c55e' }}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm font-bold text-gray-700">Distribución por estado</div>
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-green-50">📊</div>
+        </div>
+        <div className="space-y-3">
+          {stRows.map(({ label, key, color }) => {
+            const cnt = stMap[key] || 0;
+            const pct = totalSt > 0 ? Math.round(cnt / totalSt * 100) : 0;
+            return (
+              <div key={key}>
+                <div className="flex justify-between text-xs font-semibold mb-1" style={{ color }}>
+                  <span>{label}</span><span>{cnt} ({pct}%)</span>
+                </div>
+                <Bar pct={pct} color={color} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Card 3: Demanda por día */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ borderTop: '3px solid #6366f1' }}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm font-bold text-gray-700">Demanda por día de semana</div>
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-indigo-50">📅</div>
+        </div>
+        <div className="space-y-2">
+          {DOW_NAMES.map((name, dow) => {
+            const cnt = dowMap[dow] || 0;
+            const pct = Math.round(cnt / maxDow * 100);
+            const isMax = cnt === maxDow && maxDow > 0;
+            return (
+              <div key={dow}>
+                <div className="flex justify-between text-xs font-semibold mb-1 text-gray-600">
+                  <span>{name}</span><span>{cnt}</span>
+                </div>
+                <Bar pct={pct} color={isMax ? '#6366f1' : '#94a3b8'} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const STATUS = {
   pendiente:  { label: 'Pendiente',  icon: '⏳', badge: 'bg-orange-100 text-orange-700' },
   confirmada: { label: 'Confirmada', icon: '✅', badge: 'bg-green-100 text-green-700' },
@@ -37,6 +146,7 @@ export default function Dashboard() {
   const [updating, setUpdating] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [tab, setTab] = useState('agenda');
 
   const api = useCallback((url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
@@ -113,7 +223,18 @@ export default function Dashboard() {
               <div className="text-gray-300 text-sm capitalize">{dateLabel}</div>
             </div>
 
-            {/* Spacer — aquí puedes agregar navegación futura */}
+            {/* Navegación de tabs */}
+            <div className="px-5 py-4 space-y-2">
+              {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento']].map(([key,label]) => (
+                <button key={key} onClick={() => { setTab(key); setDrawerOpen(false); }}
+                  className="w-full py-3 rounded-xl text-sm font-semibold border-0 cursor-pointer text-left px-4 transition-colors"
+                  style={tab === key
+                    ? { background: '#6366f1', color: '#fff' }
+                    : { background: 'rgba(255,255,255,.08)', color: '#cbd5e1' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="flex-1" />
 
             {/* Logout */}
@@ -157,8 +278,24 @@ export default function Dashboard() {
         </button>
       </div>
 
+      {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
+      <div className="px-4 sm:px-6 flex gap-1"
+        style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', paddingBottom: '0' }}>
+        {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento']].map(([key,label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className="px-4 py-2.5 text-sm font-semibold border-0 cursor-pointer transition-colors rounded-t-lg"
+            style={tab === key
+              ? { background: '#f3f4f6', color: '#1a1a2e' }
+              : { background: 'transparent', color: 'rgba(255,255,255,.6)' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* ── Content ───────────────────────────────────────────────────────── */}
       <div className="max-w-6xl mx-auto px-4 py-5 sm:py-6">
+
+        {tab === 'analytics' ? <AnalyticsContent token={token} /> : (<>
 
         {/* Stats: 2 cols on mobile → 4 on sm+ */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-5">
@@ -386,6 +523,8 @@ export default function Dashboard() {
             </>
           )}
         </div>
+
+        </>)}
       </div>
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
