@@ -294,8 +294,14 @@ async function calcAvailableSlots(doctorId, fecha) {
 app.get('/api/appointments/available-slots', auth, h(async (req, res) => {
   const { fecha } = req.query;
   if (!fecha) return res.status(400).json({ error: 'Falta fecha' });
-  const slots = await calcAvailableSlots(req.user.id, fecha);
-  res.json({ slots });
+  const [slots, { rows: activeRows }] = await Promise.all([
+    calcAvailableSlots(req.user.id, fecha),
+    pool.query(
+      "SELECT 1 FROM appointments WHERE doctor_id=$1 AND fecha=$2 AND status!='cancelada' LIMIT 1",
+      [req.user.id, fecha]
+    )
+  ]);
+  res.json({ slots, hasActiveAppointments: activeRows.length > 0 });
 }));
 
 // ── Bloqueos ──────────────────────────────────────────────────────────────────
@@ -312,6 +318,14 @@ app.get('/api/blocked-slots', auth, h(async (req, res) => {
 app.post('/api/blocked-slots', auth, h(async (req, res) => {
   const { fecha, hora, motivo } = req.body;
   if (!fecha) return res.status(400).json({ error: 'Falta fecha' });
+  if (!hora) {
+    const { rows: active } = await pool.query(
+      "SELECT 1 FROM appointments WHERE doctor_id=$1 AND fecha=$2 AND status!='cancelada' LIMIT 1",
+      [req.user.id, fecha]
+    );
+    if (active.length > 0)
+      return res.status(400).json({ error: 'No puedes bloquear este día completo porque existen citas activas agendadas.' });
+  }
   const { rows } = await pool.query(
     'INSERT INTO blocked_slots (doctor_id,fecha,hora,motivo) VALUES ($1,$2,$3,$4) RETURNING *',
     [req.user.id, fecha, hora || null, motivo || null]

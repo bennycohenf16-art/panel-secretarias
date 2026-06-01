@@ -14,6 +14,7 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
 
   const [blockingSlots, setBlockingSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [hasActiveAppointments, setHasActiveAppointments] = useState(false);
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -23,8 +24,9 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
   }, [token]);
 
   useEffect(() => {
-    if (form.tipo !== 'hora' || !form.fecha) {
+    if (!form.fecha) {
       setBlockingSlots([]);
+      setHasActiveAppointments(false);
       return;
     }
     setForm(p => ({ ...p, hora: '' }));
@@ -33,8 +35,11 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
-      .then(d => setBlockingSlots(Array.isArray(d.slots) ? d.slots : []))
-      .catch(() => setBlockingSlots([]))
+      .then(d => {
+        setBlockingSlots(Array.isArray(d.slots) ? d.slots : []);
+        setHasActiveAppointments(!!d.hasActiveAppointments);
+      })
+      .catch(() => { setBlockingSlots([]); setHasActiveAppointments(false); })
       .finally(() => setLoadingSlots(false));
   }, [form.fecha, form.tipo, token]);
 
@@ -118,6 +123,16 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
             </select>
           </div>
 
+          {form.tipo === 'dia' && hasActiveAppointments && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8, fontSize: 13,
+              background: '#fff0f0', border: '1.5px solid #ffcdd2', color: '#c62828',
+              lineHeight: 1.5
+            }}>
+              ❌ No puedes bloquear este día completo porque ya hay citas activas de pacientes en la agenda. Debes reubicarlas o cancelarlas primero.
+            </div>
+          )}
+
           {form.tipo === 'hora' && (
             <div>
               <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 4, color: '#444' }}>
@@ -169,14 +184,14 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
 
           <button
             type="submit"
-            disabled={saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0))}
+            disabled={saving || loadingSlots || (form.tipo === 'dia' && hasActiveAppointments) || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0))}
             style={{
               padding: '11px', borderRadius: 9, border: 'none',
-              background: (saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
+              background: (saving || loadingSlots || (form.tipo === 'dia' && hasActiveAppointments) || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
                 ? '#ccc'
                 : 'linear-gradient(135deg, #e53935, #b71c1c)',
               color: '#fff', fontWeight: 700,
-              cursor: (saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
+              cursor: (saving || loadingSlots || (form.tipo === 'dia' && hasActiveAppointments) || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
                 ? 'default' : 'pointer',
               fontSize: 14,
               boxShadow: (saving || loadingSlots || (form.tipo === 'hora' && (!form.fecha || !form.hora || blockingSlots.length === 0)))
