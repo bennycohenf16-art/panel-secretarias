@@ -381,86 +381,81 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
 }));
 
 app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
-  const { status } = req.body;
+  const nuevoEstado = (req.body.status || '').toLowerCase().trim();
+  const citaId = req.params.id;
 
   const prev = await pool.query(
     'SELECT status FROM appointments WHERE id=$1 AND doctor_id=$2',
-    [req.params.id, req.user.id]
+    [citaId, req.user.id]
   );
-  const estadoPrevio = prev.rows[0]?.status ?? null;
-  const dispararNotificacionCancelacion = estadoPrevio === 'confirmada' && status === 'cancelada';
+  const estadoAnterior = (prev.rows[0]?.status || '').toLowerCase().trim();
+
+  console.log(`[CAMBIO ESTADO] Cita ID: ${citaId} | Estado Anterior: ${estadoAnterior} -> Nuevo Estado: ${nuevoEstado}`);
 
   const r = await pool.query(
     'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3 RETURNING nombre, telefono, fecha, hora',
-    [status, req.params.id, req.user.id]
+    [nuevoEstado, citaId, req.user.id]
   );
-  res.json({ ok: true });
+  if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
 
-  // Bloque de notificación completamente aislado — no puede afectar la respuesta ya enviada
-  const dispararConfirmada = status === 'confirmada' && r.rows.length;
-  if ((dispararConfirmada || dispararNotificacionCancelacion) && r.rows.length) {
-    ;(async () => {
+  const { nombre, telefono, fecha, hora } = r.rows[0];
+
+  const esConfirmacion = nuevoEstado === 'confirmada';
+  const esCancelacionDesdeConfirmada = estadoAnterior === 'confirmada' && nuevoEstado === 'cancelada';
+
+  if (esConfirmacion || esCancelacionDesdeConfirmada) {
+    if (!telefono || telefono.trim() === '') {
+      console.warn('[notify] Abortado — teléfono vacío en la cita');
+    } else {
       try {
-        const { nombre, telefono, fecha, hora } = r.rows[0];
-        console.log(`[notify] Iniciando bridge: status=${status} estadoPrevio=${estadoPrevio} nombre=${nombre} telefono="${telefono}"`);
-
-        if (!telefono || telefono.trim() === '') {
-          console.warn('[notify] Abortado — teléfono vacío en la cita');
-          return;
-        }
-
         const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
         if (!dr.rows.length) {
           console.error('[notify] Abortado — no se encontró bot_slug para doctor_id', req.user.id);
-          return;
-        }
-        const botSlug = dr.rows[0].bot_slug;
-        console.log(`[notify] bot_slug=${botSlug}`);
+        } else {
+          const botSlug = dr.rows[0].bot_slug;
 
-        console.log('[DEBUG Bridge] fecha raw:', fecha, '| type:', typeof fecha, '| hora raw:', hora);
+          let fechaCitaStr = 'Fecha no disponible';
+          if (fecha) {
+            const isoDate = typeof fecha === 'string'
+              ? fecha.split('T')[0]
+              : fecha.toISOString().substring(0, 10);
+            const parsedDate = new Date(`${isoDate}T12:00:00`);
+            if (!isNaN(parsedDate)) {
+              fechaCitaStr = parsedDate.toLocaleDateString('es-MX', {
+                weekday: 'long', day: 'numeric', month: 'long'
+              });
+            }
+          }
+          const horaFmt = String(hora).substring(0, 5);
 
-        // pg devuelve DATE como objeto Date nativo — .toISOString() extrae YYYY-MM-DD limpio
-        // T12:00:00 (sin Z) se interpreta en hora local (Mexico City) y evita salto de día UTC
-        let fechaCitaStr = 'Fecha no disponible';
-        if (fecha) {
-          const isoDate = typeof fecha === 'string'
-            ? fecha.split('T')[0]
-            : fecha.toISOString().substring(0, 10);
-          const parsedDate = new Date(`${isoDate}T12:00:00`);
-          if (!isNaN(parsedDate)) {
-            fechaCitaStr = parsedDate.toLocaleDateString('es-MX', {
-              weekday: 'long', day: 'numeric', month: 'long'
-            });
+          const text = esConfirmacion
+            ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
+            : `✅ Tu cita ha sido cancelada exitosamente.\n\nSi deseas volver a agendar, escribe 'hola' en cualquier momento. ¡Que te mejores! 🙏`;
+
+          const baseUrl  = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+          const finalUrl = `${baseUrl}/api/messages/send-notification`;
+          const apiKey   = process.env.INTERNAL_API_KEY || '';
+          console.log(`[notify] POST → ${finalUrl} | botSlug=${botSlug} | telefono=${telefono}`);
+
+          const resp = await fetch(finalUrl, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+            body:    JSON.stringify({ botSlug, phone: telefono, text })
+          });
+          const raw = await resp.text();
+          if (!resp.ok) {
+            console.error(`[notify] ❌ Bot respondió ${resp.status}: ${raw.substring(0, 120)}`);
+          } else {
+            console.log(`[notify] ✅ Enviado: ${nuevoEstado} → ${nombre} (${telefono})`);
           }
         }
-        console.log('[DEBUG Bridge] fechaCitaStr:', fechaCitaStr);
-        const horaFmt = String(hora).substring(0, 5);
-
-        const text = status === 'confirmada'
-          ? `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`
-          : `✅ Tu cita ha sido cancelada exitosamente.\n\nSi deseas volver a agendar, escribe 'hola' en cualquier momento. ¡Que te mejores! 🙏`;
-
-        const baseUrl    = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
-        const finalUrl   = `${baseUrl}/api/messages/send-notification`;
-        const apiKey     = process.env.INTERNAL_API_KEY || '';
-        console.log(`[notify] POST → ${finalUrl}`);
-
-        const resp = await fetch(finalUrl, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-          body:    JSON.stringify({ botSlug, phone: telefono, text })
-        });
-        const raw = await resp.text();
-        if (!resp.ok) {
-          throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
-        }
-        const body = JSON.parse(raw);
-        console.log(`[notify] ✅ Enviado: ${status} → ${nombre} (${telefono})`, body);
       } catch (err) {
-        console.error('[Bridge Error] Excepción en bloque de notificación:', err.message, err.stack);
+        console.error('[Bridge Error]', err.message, err.stack);
       }
-    })();
+    }
   }
+
+  res.json({ ok: true });
 }));
 
 app.delete('/api/appointments/:id', auth, h(async (req, res) => {
