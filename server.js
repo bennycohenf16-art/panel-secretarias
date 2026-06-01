@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const cron = require('node-cron');
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const app = express();
 app.use(express.json());
@@ -396,12 +397,18 @@ async function runReminders() {
     }
     try {
       const horaFmt = String(appt.hora).substring(0, 5);
-      const text    = `¡Hola, ${appt.nombre}! ⏰ Te recordamos que el día de mañana tienes una cita agendada a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
+      const opciones = [
+        `¡Hola, ${appt.nombre}! ⏰ Te recordamos que el día de mañana tienes una cita agendada a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`,
+        `Hola, ${appt.nombre}. 📅 Solo para confirmarte que mañana es tu cita médica a las *${horaFmt} hrs*. Por favor, intenta llegar 5 minutos antes. 🏥`,
+        `¡Buen día, ${appt.nombre}! ✨ Pasamos a recordarte tu cita programada para mañana a las *${horaFmt} hrs*. Si tienes alguna duda, escríbenos por este medio. 👍`,
+        `Estimado/a ${appt.nombre}, 📝 Le recordamos que su cita está confirmada para mañana a las *${horaFmt} hrs*. Agradecemos su puntualidad. Clínica Médica 🏥`,
+      ];
+      const textoFinal = opciones[Math.floor(Math.random() * opciones.length)];
 
       const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-        body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text })
+        body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text: textoFinal })
       });
       const raw = await resp.text();
       if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
@@ -412,6 +419,9 @@ async function runReminders() {
     } catch (err) {
       console.error(`[CRON Recordatorios] ❌ id=${appt.id} (${appt.nombre}):`, err.message);
     }
+
+    const tiempoEspera = Math.floor(Math.random() * 3001) + 3000;
+    await delay(tiempoEspera);
   }
 
   console.log(`[CRON Recordatorios] Enviados ${enviados} de ${appts.length} mensajes para el día de mañana.`);
@@ -454,7 +464,7 @@ initDB()
     app.listen(PORT, () => console.log(`\n🏥 Panel Secretarias en http://localhost:${PORT}\n`));
 
     // ── Recordatorios automáticos — 09:00 AM hora CDMX todos los días ──────────
-    cron.schedule('20 10 * * *', () => {
+    cron.schedule('0 9 * * *', () => {
       runReminders().catch(err =>
         console.error('[CRON Recordatorios] Error crítico en la tarea:', err.message)
       );
