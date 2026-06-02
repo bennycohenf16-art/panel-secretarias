@@ -132,7 +132,11 @@ const todayISO = () => {
   const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
-const cleanPhone = (t) => (t || '').replace(/:[0-9]+(@.*)?$/, '').replace(/@.*$/, '');
+const fmtPhone = (t) => {
+  const d = (t || '').replace(/\D/g, '');
+  if (!d) return '';
+  return `+52 ${d.slice(-10)}`;
+};
 
 export default function Dashboard() {
   const nav = useNavigate();
@@ -428,7 +432,7 @@ export default function Dashboard() {
                       {c.telefono && (
                         <button onClick={() => setHistoryPhone(c.telefono)}
                           className="bg-green-50 text-green-700 text-xs font-bold px-3 py-1.5 rounded-lg mb-3 border-0 cursor-pointer block">
-                          📞 +{cleanPhone(c.telefono)}
+                          📞 {fmtPhone(c.telefono)}
                         </button>
                       )}
 
@@ -488,7 +492,7 @@ export default function Dashboard() {
                             {c.telefono ? (
                               <button onClick={() => setHistoryPhone(c.telefono)}
                                 className="bg-green-50 text-green-700 border-0 px-2.5 py-1 rounded-lg cursor-pointer text-xs font-bold">
-                                📞 +{cleanPhone(c.telefono)}
+                                📞 {fmtPhone(c.telefono)}
                               </button>
                             ) : <span className="text-gray-300">—</span>}
                           </td>

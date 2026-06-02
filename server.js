@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const cron = require('node-cron');
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const normPhone = (t) => { const d = (t || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : d; };
 
 const app = express();
 app.use(express.json());
@@ -221,7 +222,7 @@ app.post('/api/webhook', h(async (req, res) => {
   if (!r.rows.length) return res.status(401).json({ error: 'Token inválido' });
   await pool.query(
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-    [r.rows[0].id, nombre, telefono || '', fecha, hora, motivo || '', 'whatsapp']
+    [r.rows[0].id, nombre, normPhone(telefono), fecha, hora, motivo || '', 'whatsapp']
   );
   res.json({ ok: true });
 }));
@@ -433,7 +434,7 @@ app.post('/api/appointments', auth, h(async (req, res) => {
   const { nombre, telefono, fecha, hora, motivo } = req.body;
   const r = await pool.query(
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [req.user.id, nombre, telefono || '', fecha, hora, motivo || '', 'manual']
+    [req.user.id, nombre, normPhone(telefono), fecha, hora, motivo || '', 'manual']
   );
   res.json(r.rows[0]);
 }));
@@ -451,7 +452,7 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
 
   const r = await pool.query(
     'UPDATE appointments SET nombre=$1,telefono=$2,fecha=$3,hora=$4,motivo=$5,status=$6 WHERE id=$7 AND doctor_id=$8 RETURNING *',
-    [nombre, telefono || '', fecha, hora, motivo || '', status, citaId, doctorId]
+    [nombre, normPhone(telefono), fecha, hora, motivo || '', status, citaId, doctorId]
   );
   if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
 
