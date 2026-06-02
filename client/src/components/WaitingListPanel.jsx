@@ -7,11 +7,13 @@ export default function WaitingListPanel({ token }) {
   const [telefono, setTelefono]     = useState('');
   const [saving, setSaving]         = useState(false);
   const [addMsg, setAddMsg]         = useState('');
-  const [offerTarget, setOfferTarget] = useState(null); // paciente al que se ofrece espacio
-  const [offerFecha, setOfferFecha] = useState('');
-  const [offerHora, setOfferHora]   = useState('');
-  const [offering, setOffering]     = useState(false);
-  const [offerMsg, setOfferMsg]     = useState('');
+  const [offerTarget, setOfferTarget]       = useState(null); // paciente al que se ofrece espacio
+  const [offerFecha, setOfferFecha]         = useState('');
+  const [offerHora, setOfferHora]           = useState('');
+  const [offering, setOffering]             = useState(false);
+  const [offerMsg, setOfferMsg]             = useState('');
+  const [availableOffers, setAvailableOffers] = useState([]);
+  const [loadingOffers, setLoadingOffers]   = useState(false);
 
   const api = (url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
@@ -24,6 +26,22 @@ export default function WaitingListPanel({ token }) {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Fetch de slots disponibles cada vez que cambia la fecha o el paciente objetivo
+  useEffect(() => {
+    if (!offerTarget?.doctor_id || !offerFecha) {
+      setAvailableOffers([]);
+      return;
+    }
+    setOfferHora('');
+    setAvailableOffers([]);
+    setLoadingOffers(true);
+    api(`/api/appointments/available-slots?doctor_id=${offerTarget.doctor_id}&fecha=${offerFecha}`)
+      .then(r => r.json())
+      .then(data => setAvailableOffers(Array.isArray(data.slots) ? data.slots : []))
+      .catch(() => setAvailableOffers([]))
+      .finally(() => setLoadingOffers(false));
+  }, [offerFecha, offerTarget?.doctor_id]);
 
   const add = async (e) => {
     e.preventDefault();
@@ -57,6 +75,7 @@ export default function WaitingListPanel({ token }) {
     setOfferFecha('');
     setOfferHora('');
     setOfferMsg('');
+    setAvailableOffers([]);
   };
 
   const sendOffer = async () => {
@@ -209,9 +228,30 @@ export default function WaitingListPanel({ token }) {
                   className="w-full px-3 py-2 rounded-xl border-2 border-gray-100 text-sm focus:border-amber-400 focus:outline-none" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-500 block mb-1">Hora</label>
-                <input type="time" value={offerHora} onChange={e => setOfferHora(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-gray-100 text-sm focus:border-amber-400 focus:outline-none" />
+                <label className="text-xs font-semibold text-gray-500 block mb-1">Hora disponible</label>
+                {!offerFecha ? (
+                  <select disabled
+                    className="w-full px-3 py-2 rounded-xl border-2 border-gray-100 text-sm text-gray-400 bg-gray-50">
+                    <option>Selecciona primero una fecha</option>
+                  </select>
+                ) : loadingOffers ? (
+                  <select disabled
+                    className="w-full px-3 py-2 rounded-xl border-2 border-gray-100 text-sm text-gray-400 bg-gray-50">
+                    <option>Cargando espacios libres...</option>
+                  </select>
+                ) : availableOffers.length === 0 ? (
+                  <div className="w-full px-3 py-2 rounded-xl border-2 border-amber-200 text-xs font-semibold text-amber-700 bg-amber-50">
+                    ⚠️ No hay horarios disponibles para ofrecer en este día
+                  </div>
+                ) : (
+                  <select value={offerHora} onChange={e => setOfferHora(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border-2 border-gray-100 text-sm focus:border-amber-400 focus:outline-none">
+                    <option value="">— Elige un horario —</option>
+                    {availableOffers.map(slot => (
+                      <option key={slot} value={slot}>{slot} hrs</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -227,7 +267,7 @@ export default function WaitingListPanel({ token }) {
                 Cancelar
               </button>
               <button onClick={sendOffer}
-                disabled={!offerFecha || !offerHora || offering}
+                disabled={!offerFecha || !offerHora || availableOffers.length === 0 || loadingOffers || offering}
                 className="flex-1 py-3 rounded-xl text-white font-bold cursor-pointer border-0 text-sm disabled:opacity-50"
                 style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
                 {offering ? 'Enviando...' : '⚡ Enviar WhatsApp'}
