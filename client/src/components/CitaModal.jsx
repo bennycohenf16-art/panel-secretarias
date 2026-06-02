@@ -1,28 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const fi = {
   width: '100%', padding: '10px 12px', borderRadius: 8,
   border: '1.5px solid #ddd', fontSize: 14, outline: 'none', transition: 'border-color .2s'
 };
 
-export default function CitaModal({ cita, onClose, onSaved }) {
+export default function CitaModal({ cita, defaults, onClose, onSaved }) {
   const isEdit = !!cita;
   const [form, setForm] = useState({
-    nombre: cita?.nombre || '',
+    nombre:   cita?.nombre   || '',
     telefono: cita?.telefono || '',
-    fecha: cita?.fecha ? cita.fecha.split('T')[0] : '',
-    hora: cita?.hora ? cita.hora.slice(0, 5) : '',
-    motivo: cita?.motivo || '',
-    status: cita?.status || 'pendiente'
+    fecha:    cita?.fecha ? cita.fecha.split('T')[0] : (defaults?.fecha || ''),
+    hora:     cita?.hora  ? cita.hora.slice(0, 5) : '',
+    motivo:   cita?.motivo   || '',
+    status:   cita?.status   || 'pendiente',
   });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [slots, setSlots] = useState([]);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState('');
+  const [slots, setSlots]             = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Guarda la hora sugerida para aplicarla una sola vez al cargar los slots
+  const defaultHoraRef = useRef(defaults?.hora || null);
 
   const token = localStorage.getItem('panel_token');
 
-  // Para nuevas citas: cargar slots disponibles cuando cambia la fecha
   useEffect(() => {
     if (isEdit || !form.fecha) { setSlots([]); return; }
     setLoadingSlots(true);
@@ -31,7 +33,14 @@ export default function CitaModal({ cita, onClose, onSaved }) {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
-      .then(d => { setSlots(d.slots || []); })
+      .then(d => {
+        const slotList = d.slots || [];
+        setSlots(slotList);
+        if (defaultHoraRef.current && slotList.includes(defaultHoraRef.current)) {
+          setForm(p => ({ ...p, hora: defaultHoraRef.current }));
+        }
+        defaultHoraRef.current = null;
+      })
       .catch(() => setSlots([]))
       .finally(() => setLoadingSlots(false));
   }, [form.fecha, isEdit, token]);
