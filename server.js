@@ -231,6 +231,14 @@ function auth(req, res, next) {
   }
 }
 
+function authOrInternal(req, res, next) {
+  if (req.headers['x-internal-key'] === process.env.INTERNAL_API_KEY) {
+    req.user = null;
+    return next();
+  }
+  auth(req, res, next);
+}
+
 // ── Factory: crear cuenta de doctor ──────────────────────────────────────────
 app.post('/api/doctors', h(async (req, res) => {
   const { factory_secret, name, email, password, bot_slug } = req.body;
@@ -541,11 +549,14 @@ app.get('/api/appointments/month', auth, h(async (req, res) => {
   res.json({ total: parseInt(r.rows[0].total) });
 }));
 
-app.post('/api/appointments', auth, h(async (req, res) => {
-  const { nombre, telefono, fecha, hora, motivo } = req.body;
+app.post('/api/appointments', authOrInternal, h(async (req, res) => {
+  const { nombre, telefono, fecha, hora, motivo, doctor_id: bodyDoctorId } = req.body;
+  const doctorId = req.user?.id ?? bodyDoctorId;
+  if (!doctorId) return res.status(400).json({ error: 'doctor_id requerido' });
+  const source = req.user ? 'manual' : 'whatsapp';
   const r = await pool.query(
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [req.user.id, nombre, normPhone(telefono), fecha, hora, motivo || '', 'manual']
+    [doctorId, nombre, normPhone(telefono), fecha, hora, motivo || '', source]
   );
   if (req.user) {
     await pool.query(
@@ -704,6 +715,19 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
   );
   if (!r.rows.length) return res.status(404).json({ error: 'Paciente no encontrado en tu lista' });
 
+  const [slotAppt, slotBlq] = await Promise.all([
+    pool.query(
+      "SELECT 1 FROM appointments WHERE doctor_id=$1 AND fecha=$2 AND hora=$3 AND status!='cancelada' LIMIT 1",
+      [req.user.id, fecha, hora]
+    ),
+    pool.query(
+      'SELECT 1 FROM blocked_slots WHERE doctor_id=$1 AND fecha=$2 AND (hora=$3 OR hora IS NULL) LIMIT 1',
+      [req.user.id, fecha, hora]
+    )
+  ]);
+  if (slotAppt.rows.length || slotBlq.rows.length)
+    return res.status(400).json({ error: 'El horario seleccionado ya no está disponible o se encuentra bloqueado.' });
+
   const { nombre, telefono, bot_slug } = r.rows[0];
   const fechaFmt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-MX', {
     weekday: 'long', day: 'numeric', month: 'long'
@@ -813,13 +837,8 @@ app.post('/api/billing/checkout', auth, h(async (req, res) => {
     res.json({ url: session.url });
 
   } catch (err) {
-    console.error('[STRIPE CHECKOUT ERROR]', err.message);
-    res.status(500).json({
-      error:   'Error al procesar con Stripe',
-      detalle: err.message,
-      tipo:    err.type  || null,
-      codigo:  err.code  || null,
-    });
+    console.error('[STRIPE CHECKOUT CRASH]', err.message);
+    res.status(400).json({ error: err.message });
   }
 }));
 
