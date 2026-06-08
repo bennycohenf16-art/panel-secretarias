@@ -706,48 +706,62 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
   if (!waiting_list_id || !fecha || !hora)
     return res.status(400).json({ error: 'Faltan campos: waiting_list_id, fecha, hora' });
 
-  const r = await pool.query(
-    `SELECT w.nombre, w.telefono, d.bot_slug
-     FROM waiting_list w
-     JOIN doctors d ON w.doctor_id = d.id
-     WHERE w.id=$1 AND w.doctor_id=$2`,
-    [waiting_list_id, req.user.id]
-  );
-  if (!r.rows.length) return res.status(404).json({ error: 'Paciente no encontrado en tu lista' });
+  try {
+    const r = await pool.query(
+      `SELECT w.nombre, w.telefono, d.bot_slug
+       FROM waiting_list w
+       JOIN doctors d ON w.doctor_id = d.id
+       WHERE w.id=$1 AND w.doctor_id=$2`,
+      [waiting_list_id, req.user.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Paciente no encontrado en tu lista' });
 
-  const [slotAppt, slotBlq] = await Promise.all([
-    pool.query(
-      "SELECT 1 FROM appointments WHERE doctor_id=$1 AND fecha=$2 AND hora=$3 AND status!='cancelada' LIMIT 1",
-      [req.user.id, fecha, hora]
-    ),
-    pool.query(
-      'SELECT 1 FROM blocked_slots WHERE doctor_id=$1 AND fecha=$2 AND (hora=$3 OR hora IS NULL) LIMIT 1',
-      [req.user.id, fecha, hora]
-    )
-  ]);
-  if (slotAppt.rows.length || slotBlq.rows.length)
-    return res.status(400).json({ error: 'El horario seleccionado ya no está disponible o se encuentra bloqueado.' });
+    // Normaliza a "HH:MM" para comparación segura contra columna TIME de Postgres
+    const horaPrefix = String(hora).slice(0, 5);
 
-  const { nombre, telefono, bot_slug } = r.rows[0];
-  const fechaFmt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-MX', {
-    weekday: 'long', day: 'numeric', month: 'long'
-  });
-  const horaFmt = String(hora).substring(0, 5);
-  const text = `¡Hola, ${nombre}! ✨ Se acaba de liberar un espacio con el doctor para el *${fechaFmt}* a las *${horaFmt} hrs*. ¿Te interesa agendarlo? Responde *SÍ* para asegurarlo de inmediato. 🏥`;
+    const [slotAppt, slotBlqHora, slotBlqDia] = await Promise.all([
+      pool.query(
+        "SELECT 1 FROM appointments WHERE doctor_id=$1 AND fecha=$2 AND hora::text LIKE $3 AND status!='cancelada' LIMIT 1",
+        [req.user.id, fecha, horaPrefix + '%']
+      ),
+      pool.query(
+        'SELECT 1 FROM blocked_slots WHERE doctor_id=$1 AND fecha=$2 AND hora IS NOT NULL AND hora::text LIKE $3 LIMIT 1',
+        [req.user.id, fecha, horaPrefix + '%']
+      ),
+      pool.query(
+        'SELECT 1 FROM blocked_slots WHERE doctor_id=$1 AND fecha=$2 AND hora IS NULL LIMIT 1',
+        [req.user.id, fecha]
+      )
+    ]);
 
-  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
-  const apiKey  = process.env.INTERNAL_API_KEY || '';
-  const resp = await fetch(`${baseUrl}/api/messages/send-offer`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-    body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text, fecha, hora, nombre, telefono })
-  });
-  const raw = await resp.text();
-  if (!resp.ok) throw new Error(`Bot Factory: ${raw.substring(0, 200)}`);
+    if (slotAppt.rows.length || slotBlqHora.rows.length || slotBlqDia.rows.length)
+      return res.status(400).json({ error: 'El horario seleccionado ya no está disponible o se encuentra bloqueado.' });
 
-  await pool.query('DELETE FROM waiting_list WHERE id=$1', [waiting_list_id]);
-  console.log(`[offer] ✅ Espacio ofrecido a ${nombre} (${telefono}) → ${fecha} ${horaFmt}`);
-  res.json({ ok: true });
+    const { nombre, telefono, bot_slug } = r.rows[0];
+    const fechaFmt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-MX', {
+      weekday: 'long', day: 'numeric', month: 'long'
+    });
+    const horaFmt = horaPrefix;
+    const text = `¡Hola, ${nombre}! ✨ Se acaba de liberar un espacio con el doctor para el *${fechaFmt}* a las *${horaFmt} hrs*. ¿Te interesa agendarlo? Responde *SÍ* para asegurarlo de inmediato. 🏥`;
+
+    const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+    const apiKey  = process.env.INTERNAL_API_KEY || '';
+    const resp = await fetch(`${baseUrl}/api/messages/send-offer`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+      body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text, fecha, hora: horaFmt, nombre, telefono })
+    });
+    const raw = await resp.text();
+    if (!resp.ok) throw new Error(`Bot Factory: ${raw.substring(0, 200)}`);
+
+    await pool.query('DELETE FROM waiting_list WHERE id=$1', [waiting_list_id]);
+    console.log(`[offer] ✅ Espacio ofrecido a ${nombre} (${telefono}) → ${fecha} ${horaFmt}`);
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error('[OFFER CRASH]', err);
+    res.status(500).json({ error: err.message });
+  }
 }));
 
 app.delete('/api/waiting-list/:id', auth, h(async (req, res) => {
