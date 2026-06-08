@@ -95,6 +95,17 @@ async function initDB() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS secretary_logs (
+      id             SERIAL PRIMARY KEY,
+      secretary_id   INT NOT NULL,
+      secretary_name VARCHAR(255),
+      appointment_id INT,
+      action         VARCHAR(50),
+      created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   console.log('[db] Schema panel-secretarias OK');
 
   // Seed: admin de arranque solo si la tabla doctors está completamente vacía
@@ -436,6 +447,10 @@ app.post('/api/appointments', auth, h(async (req, res) => {
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     [req.user.id, nombre, normPhone(telefono), fecha, hora, motivo || '', 'manual']
   );
+  await pool.query(
+    'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
+    [req.user.id, req.user.name, r.rows[0].id, 'crear_manual']
+  );
   res.json(r.rows[0]);
 }));
 
@@ -455,6 +470,14 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
     [nombre, normPhone(telefono), fecha, hora, motivo || '', status, citaId, doctorId]
   );
   if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
+
+  const nuevoLimpioP = (status || '').toLowerCase().trim();
+  if (nuevoLimpioP === 'confirmada' || nuevoLimpioP === 'cancelada') {
+    await pool.query(
+      'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
+      [req.user.id, req.user.name, citaId, nuevoLimpioP === 'confirmada' ? 'confirmar' : 'cancelar']
+    );
+  }
 
   await notificarCambioEstado(citaId, estadoAnterior, status, doctorId);
 
@@ -479,6 +502,13 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
     'UPDATE appointments SET status=$1 WHERE id=$2 AND doctor_id=$3',
     [nuevoEstado, citaId, doctorId]
   );
+
+  if (nuevoEstado === 'confirmada' || nuevoEstado === 'cancelada') {
+    await pool.query(
+      'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
+      [req.user.id, req.user.name, citaId, nuevoEstado === 'confirmada' ? 'confirmar' : 'cancelar']
+    );
+  }
 
   await notificarCambioEstado(citaId, estadoAnterior, nuevoEstado, doctorId);
 
@@ -605,6 +635,40 @@ app.delete('/api/waiting-list/:id', auth, h(async (req, res) => {
     [req.params.id, req.user.id]
   );
   res.json({ ok: true });
+}));
+
+// ── Módulo de Rendimiento ─────────────────────────────────────────────────────
+app.get('/api/reports/performance', auth, h(async (req, res) => {
+  const { desde, hasta } = req.query;
+  const params = [req.user.id];
+  let dateFilter = '';
+  if (desde) {
+    params.push(desde);
+    dateFilter += ` AND sl.created_at >= $${params.length}`;
+  }
+  if (hasta) {
+    params.push(hasta + ' 23:59:59');
+    dateFilter += ` AND sl.created_at <= $${params.length}`;
+  }
+  const { rows } = await pool.query(
+    `SELECT
+       sl.secretary_name,
+       COUNT(*) FILTER (WHERE sl.action = 'confirmar')    AS confirmadas,
+       COUNT(*) FILTER (WHERE sl.action = 'cancelar')     AS canceladas,
+       COUNT(*) FILTER (WHERE sl.action = 'crear_manual') AS creadas_manual
+     FROM secretary_logs sl
+     JOIN appointments a ON sl.appointment_id = a.id
+     WHERE a.doctor_id = $1${dateFilter}
+     GROUP BY sl.secretary_name
+     ORDER BY sl.secretary_name`,
+    params
+  );
+  res.json(rows.map(r => ({
+    secretary_name:  r.secretary_name,
+    confirmadas:     parseInt(r.confirmadas)    || 0,
+    canceladas:      parseInt(r.canceladas)     || 0,
+    creadas_manual:  parseInt(r.creadas_manual) || 0,
+  })));
 }));
 
 // ── Lógica de recordatorios (también usada por el cron) ──────────────────────
