@@ -43,6 +43,10 @@ const todayISO = () => {
   const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
+const firstOfMonthISO = () => {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+};
 const fmtPhone = (t) => {
   const d = (t || '').replace(/\D/g, '');
   if (!d) return '';
@@ -163,7 +167,6 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
 
   return (
     <div>
-      {/* Banner: día completo bloqueado */}
       {isDayBlocked && (
         <div className="px-4 py-3 border-b border-red-100 flex flex-wrap items-center gap-3"
           style={{ background: 'repeating-linear-gradient(-45deg,#fff5f5,#fff5f5 8px,#fee2e2 8px,#fee2e2 16px)' }}>
@@ -180,31 +183,21 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
           ))}
         </div>
       )}
-
-      {/* Cuadrícula */}
       <div style={{ paddingBottom: 8 }}>
         {TIME_SLOTS.map((slot) => {
           const citas      = citasAtSlot(slot);
           const bloqueados = blockedAtSlot(slot);
           const hasContent = citas.length > 0 || bloqueados.length > 0;
           const isHour     = slot.endsWith(':00');
-
           return (
             <div key={slot} className="flex"
               style={{ minHeight: hasContent ? 'auto' : 56, borderBottom: `1px solid ${isHour ? '#f3f4f6' : '#fafafa'}` }}>
-
-              {/* Columna de hora */}
-              <div className="flex-none flex items-start justify-end pt-3 pr-3"
-                style={{ width: 72 }}>
+              <div className="flex-none flex items-start justify-end pt-3 pr-3" style={{ width: 72 }}>
                 <span style={{ fontSize: 11, fontWeight: isHour ? 600 : 400, color: isHour ? '#6b7280' : '#d1d5db', fontVariantNumeric: 'tabular-nums' }}>
                   {slot}
                 </span>
               </div>
-
-              {/* Línea vertical */}
               <div className="flex-none mt-2" style={{ width:1, background: isHour ? '#e5e7eb' : '#f3f4f6' }} />
-
-              {/* Área de contenido */}
               <div className="flex-1 pl-3 pr-4 py-1.5 space-y-1">
                 {citas.map(c => (
                   <CitaCard key={c.id} cita={c} updating={updating}
@@ -228,108 +221,14 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
   );
 }
 
-// ── Analytics ─────────────────────────────────────────────────────────────────
-
-function AnalyticsContent({ token }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/analytics', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [token]);
-
-  if (loading) return (
-    <div className="py-16 text-center text-gray-400">
-      <div className="text-4xl mb-2">⏳</div><p>Cargando analíticas...</p>
-    </div>
-  );
-  if (!data) return <div className="py-16 text-center text-gray-400">Sin datos disponibles.</div>;
-
-  const totalSrc = data.bySource.reduce((s, r) => s + r.count, 0);
-  const botCount = (data.bySource.find(r => r.source === 'whatsapp')?.count) || 0;
-  const autoPct  = totalSrc > 0 ? Math.round(botCount / totalSrc * 100) : 0;
-
-  const totalSt = data.byStatus.reduce((s, r) => s + r.count, 0);
-  const stMap   = Object.fromEntries(data.byStatus.map(r => [r.status, r.count]));
-  const stRows  = [
-    { label: 'Confirmadas', key: 'confirmada', color: '#22c55e' },
-    { label: 'Pendientes',  key: 'pendiente',  color: '#f59e0b' },
-    { label: 'Canceladas',  key: 'cancelada',  color: '#ef4444' },
-  ];
-
-  const maxDow = data.byDayOfWeek.reduce((m, r) => Math.max(m, r.count), 1);
-  const dowMap = Object.fromEntries(data.byDayOfWeek.map(r => [r.dow, r.count]));
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ borderTop: '3px solid #6366f1' }}>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="text-3xl font-extrabold text-indigo-600">{autoPct}%</div>
-            <div className="text-gray-500 text-sm mt-0.5">Citas automatizadas (WhatsApp)</div>
-          </div>
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-indigo-50">🤖</div>
-        </div>
-        <Bar pct={autoPct} color="#6366f1" />
-        <div className="text-xs text-gray-400 mt-2">{botCount} de {totalSrc} en los últimos 30 días</div>
-      </div>
-
-      <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ borderTop: '3px solid #22c55e' }}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm font-bold text-gray-700">Distribución por estado</div>
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-green-50">📊</div>
-        </div>
-        <div className="space-y-3">
-          {stRows.map(({ label, key, color }) => {
-            const cnt = stMap[key] || 0;
-            const pct = totalSt > 0 ? Math.round(cnt / totalSt * 100) : 0;
-            return (
-              <div key={key}>
-                <div className="flex justify-between text-xs font-semibold mb-1" style={{ color }}>
-                  <span>{label}</span><span>{cnt} ({pct}%)</span>
-                </div>
-                <Bar pct={pct} color={color} />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ borderTop: '3px solid #6366f1' }}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm font-bold text-gray-700">Demanda por día de semana</div>
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl bg-indigo-50">📅</div>
-        </div>
-        <div className="space-y-2">
-          {DOW_NAMES.map((name, dow) => {
-            const cnt  = dowMap[dow] || 0;
-            const pct  = Math.round(cnt / maxDow * 100);
-            const isMax = cnt === maxDow && maxDow > 0;
-            return (
-              <div key={dow}>
-                <div className="flex justify-between text-xs font-semibold mb-1 text-gray-600">
-                  <span>{name}</span><span>{cnt}</span>
-                </div>
-                <Bar pct={pct} color={isMax ? '#6366f1' : '#94a3b8'} />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const nav  = useNavigate();
+  const nav   = useNavigate();
   const name  = localStorage.getItem('panel_name') || 'Doctor';
   const token = localStorage.getItem('panel_token');
 
+  // ── Agenda states ──────────────────────────────────────────────────────────
   const [appointments, setAppointments] = useState([]);
   const [blockedSlots, setBlockedSlots]  = useState([]);
   const [loading, setLoading]            = useState(true);
@@ -346,10 +245,18 @@ export default function Dashboard() {
   const [vista, setVista]                = useState('calendario');
   const [prefillSlot, setPrefillSlot]    = useState(null);
 
+  // ── Rendimiento states ─────────────────────────────────────────────────────
+  const [perfData, setPerfData]       = useState([]);
+  const [loadingPerf, setLoadingPerf] = useState(false);
+  const [fechaDesde, setFechaDesde]   = useState(firstOfMonthISO);
+  const [fechaHasta, setFechaHasta]   = useState(todayISO);
+
+  // ── API helper ─────────────────────────────────────────────────────────────
   const api = useCallback((url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
   , [token]);
 
+  // ── Carga de agenda ────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
     const apptRes = await api(`/api/appointments${fecha ? `?fecha=${fecha}` : ''}`);
@@ -365,11 +272,29 @@ export default function Dashboard() {
     setLoading(false);
   }, [fecha, api, nav]);
 
+  // ── Carga de rendimiento ───────────────────────────────────────────────────
+  const loadPerformance = useCallback(async () => {
+    setLoadingPerf(true);
+    try {
+      const r = await api(`/api/reports/performance?desde=${fechaDesde}&hasta=${fechaHasta}`);
+      const d = await r.json();
+      setPerfData(Array.isArray(d) ? d : []);
+    } catch {
+      setPerfData([]);
+    } finally {
+      setLoadingPerf(false);
+    }
+  }, [api, fechaDesde, fechaHasta]);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     api('/api/appointments/month').then(r => r.json()).then(d => setMonthTotal(d.total || 0));
   }, [api]);
+  useEffect(() => {
+    if (tab === 'rendimiento') loadPerformance();
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Acciones de agenda ─────────────────────────────────────────────────────
   const changeStatus = async (id, status) => {
     setUpdating(id);
     await api(`/api/appointments/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
@@ -408,6 +333,16 @@ export default function Dashboard() {
 
   const dateLabel = new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
 
+  // ── Cómputos de rendimiento ────────────────────────────────────────────────
+  const perfTotals = perfData.reduce(
+    (acc, r) => ({
+      creadas:    acc.creadas    + (r.creadas_manual || 0),
+      confirmadas: acc.confirmadas + (r.confirmadas   || 0),
+      canceladas:  acc.canceladas  + (r.canceladas    || 0),
+    }),
+    { creadas: 0, confirmadas: 0, canceladas: 0 }
+  );
+
   return (
     <div className="min-h-screen bg-gray-100">
 
@@ -432,7 +367,7 @@ export default function Dashboard() {
               <div className="text-gray-300 text-sm capitalize">{dateLabel}</div>
             </div>
             <div className="px-5 py-4 space-y-2">
-              {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento'],['espera','⏳ Lista de Espera']].map(([key,label]) => (
+              {[['agenda','📋 Agenda'],['rendimiento','📈 Rendimiento'],['espera','⏳ Lista de Espera']].map(([key,label]) => (
                 <button key={key} onClick={() => { setTab(key); setDrawerOpen(false); }}
                   className="w-full py-3 rounded-xl text-sm font-semibold border-0 cursor-pointer text-left px-4 transition-colors"
                   style={tab === key ? { background:'#6366f1', color:'#fff' } : { background:'rgba(255,255,255,.08)', color:'#cbd5e1' }}>
@@ -482,7 +417,7 @@ export default function Dashboard() {
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
       <div className="px-4 sm:px-6 flex gap-1"
         style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
-        {[['agenda','📋 Agenda'],['analytics','📈 Rendimiento'],['espera','⏳ Espera']].map(([key,label]) => (
+        {[['agenda','📋 Agenda'],['rendimiento','📈 Rendimiento'],['espera','⏳ Espera']].map(([key,label]) => (
           <button key={key} onClick={() => setTab(key)}
             className="px-4 py-2.5 text-sm font-semibold border-0 cursor-pointer transition-colors rounded-t-lg"
             style={tab === key ? { background:'#f3f4f6', color:'#1a1a2e' } : { background:'transparent', color:'rgba(255,255,255,.6)' }}>
@@ -496,8 +431,211 @@ export default function Dashboard() {
 
         <BotStatusWidget token={token} />
 
-        {tab === 'analytics' ? <AnalyticsContent token={token} /> :
-         tab === 'espera'    ? <WaitingListPanel token={token} /> : (<>
+        {/* ══════════════════════════════════════════════════════════════════
+            PESTAÑA RENDIMIENTO
+        ══════════════════════════════════════════════════════════════════ */}
+        {tab === 'rendimiento' && (
+          <div className="space-y-5">
+
+            {/* Toolbar de filtros */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Desde</label>
+                  <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+                    className="px-3 py-2 rounded-xl border-2 border-gray-100 text-sm focus:border-indigo-400 focus:outline-none" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Hasta</label>
+                  <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+                    className="px-3 py-2 rounded-xl border-2 border-gray-100 text-sm focus:border-indigo-400 focus:outline-none" />
+                </div>
+                <button onClick={loadPerformance} disabled={loadingPerf}
+                  className="px-5 py-2 rounded-xl text-white text-sm font-bold border-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)', boxShadow: '0 4px 12px rgba(99,102,241,.35)' }}>
+                  {loadingPerf ? 'Cargando...' : '🔍 Filtrar'}
+                </button>
+              </div>
+            </div>
+
+            {loadingPerf ? (
+              <div className="py-20 text-center text-gray-400">
+                <div className="text-4xl mb-3">⏳</div>
+                <p className="text-sm font-medium">Cargando datos de rendimiento...</p>
+              </div>
+            ) : perfData.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-sm py-20 text-center">
+                <div className="text-5xl mb-4">📊</div>
+                <p className="text-base font-semibold text-gray-500 mb-1">Sin acciones registradas</p>
+                <p className="text-sm text-gray-400">No se registran acciones del personal en el rango de fechas seleccionado.</p>
+              </div>
+            ) : (
+              <>
+                {/* Tarjetas de resumen global */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {[
+                    { label: 'Citas Creadas (manual)', value: perfTotals.creadas,    color: '#4f46e5', bg: '#eef2ff', icon: '✏️' },
+                    { label: 'Total Confirmadas',      value: perfTotals.confirmadas, color: '#15803d', bg: '#f0fdf4', icon: '✅' },
+                    { label: 'Total Canceladas',       value: perfTotals.canceladas,  color: '#dc2626', bg: '#fef2f2', icon: '❌' },
+                  ].map(s => (
+                    <div key={s.label} className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-4"
+                      style={{ borderTop: `3px solid ${s.color}` }}>
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
+                        style={{ background: s.bg }}>
+                        {s.icon}
+                      </div>
+                      <div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: s.color }}>
+                          {s.value}
+                        </div>
+                        <div className="text-gray-400 text-xs mt-1">{s.label}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tabla de posiciones */}
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 flex items-center justify-between"
+                    style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
+                    <h2 className="text-white font-bold text-sm">🏆 Leaderboard del Equipo</h2>
+                    <span className="text-white text-xs font-semibold px-3 py-0.5 rounded-full"
+                      style={{ background: 'rgba(255,255,255,.15)' }}>
+                      {perfData.length} {perfData.length === 1 ? 'usuario' : 'usuarios'}
+                    </span>
+                  </div>
+
+                  {/* Desktop */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          {['#', 'Secretaria / Usuario', 'Creadas Manual', 'Confirmadas', 'Canceladas', 'Efectividad'].map(h => (
+                            <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {perfData
+                          .map(r => {
+                            const total = (r.confirmadas || 0) + (r.canceladas || 0);
+                            const efectividad = total > 0 ? ((r.confirmadas || 0) / total * 100).toFixed(1) : '—';
+                            return { ...r, efectividad, total };
+                          })
+                          .sort((a, b) => b.confirmadas - a.confirmadas)
+                          .map((r, i) => {
+                            const medals = ['🥇', '🥈', '🥉'];
+                            const medal  = medals[i] || `${i + 1}`;
+                            const efectPct = r.efectividad !== '—' ? parseFloat(r.efectividad) : 0;
+                            const efectColor = efectPct >= 80 ? '#15803d' : efectPct >= 50 ? '#b45309' : '#dc2626';
+                            return (
+                              <tr key={r.secretary_name || i}
+                                className={`transition-colors hover:bg-indigo-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                                <td className="px-4 py-3 text-base text-center" style={{ width: 48 }}>{medal}</td>
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-sm text-gray-800">{r.secretary_name || 'Sin nombre'}</div>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
+                                    style={{ background: '#eef2ff', color: '#4f46e5' }}>
+                                    {r.creadas_manual || 0}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
+                                    style={{ background: '#f0fdf4', color: '#15803d' }}>
+                                    {r.confirmadas || 0}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
+                                    style={{ background: '#fef2f2', color: '#dc2626' }}>
+                                    {r.canceladas || 0}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-extrabold" style={{ color: efectColor, minWidth: 44 }}>
+                                      {r.efectividad !== '—' ? `${r.efectividad}%` : '—'}
+                                    </span>
+                                    {r.efectividad !== '—' && (
+                                      <div className="flex-1 min-w-[64px]">
+                                        <Bar pct={efectPct} color={efectColor} />
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile cards */}
+                  <div className="block sm:hidden divide-y divide-gray-100">
+                    {perfData
+                      .map(r => {
+                        const total = (r.confirmadas || 0) + (r.canceladas || 0);
+                        const efectividad = total > 0 ? ((r.confirmadas || 0) / total * 100).toFixed(1) : null;
+                        return { ...r, efectividad };
+                      })
+                      .sort((a, b) => b.confirmadas - a.confirmadas)
+                      .map((r, i) => {
+                        const medals = ['🥇', '🥈', '🥉'];
+                        const efectColor = r.efectividad
+                          ? (parseFloat(r.efectividad) >= 80 ? '#15803d' : parseFloat(r.efectividad) >= 50 ? '#b45309' : '#dc2626')
+                          : '#9ca3af';
+                        return (
+                          <div key={r.secretary_name || i} className="p-4">
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-xl">{medals[i] || `${i + 1}.`}</span>
+                              <span className="font-bold text-gray-800 text-base">{r.secretary_name || 'Sin nombre'}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 mb-3">
+                              {[
+                                { label: 'Creadas', value: r.creadas_manual || 0, bg: '#eef2ff', color: '#4f46e5' },
+                                { label: 'Confirm.', value: r.confirmadas || 0,   bg: '#f0fdf4', color: '#15803d' },
+                                { label: 'Canceladas', value: r.canceladas || 0,  bg: '#fef2f2', color: '#dc2626' },
+                              ].map(m => (
+                                <div key={m.label} className="rounded-xl py-2 px-3 text-center" style={{ background: m.bg }}>
+                                  <div className="text-lg font-extrabold" style={{ color: m.color }}>{m.value}</div>
+                                  <div className="text-xs font-semibold" style={{ color: m.color }}>{m.label}</div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-500">Efectividad:</span>
+                              <span className="text-sm font-extrabold" style={{ color: efectColor }}>
+                                {r.efectividad ? `${r.efectividad}%` : '—'}
+                              </span>
+                              {r.efectividad && (
+                                <div className="flex-1">
+                                  <Bar pct={parseFloat(r.efectividad)} color={efectColor} />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            PESTAÑA ESPERA
+        ══════════════════════════════════════════════════════════════════ */}
+        {tab === 'espera' && <WaitingListPanel token={token} />}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            PESTAÑA AGENDA
+        ══════════════════════════════════════════════════════════════════ */}
+        {tab === 'agenda' && (<>
 
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-5">
@@ -520,11 +658,9 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* ── Barra de controles ─────────────────────────────────────────── */}
+          {/* Barra de controles */}
           <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-
-              {/* Fecha + toggle de vista */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="hidden sm:inline text-sm font-semibold text-gray-600">Fecha:</span>
                 <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
@@ -540,7 +676,6 @@ export default function Dashboard() {
                     Todas
                   </button>
                 )}
-                {/* Toggle de vista */}
                 <div className="flex items-center rounded-xl p-1 gap-0.5" style={{ background:'#f3f4f6' }}>
                   {[['calendario','🗓 Calendario'],['tabla','📋 Tabla']].map(([v, label]) => (
                     <button key={v} onClick={() => handleSetVista(v)}
@@ -553,8 +688,6 @@ export default function Dashboard() {
                   ))}
                 </div>
               </div>
-
-              {/* Acciones */}
               <div className="flex gap-2 w-full sm:w-auto">
                 <button onClick={() => setShowBlockedModal(true)}
                   className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer border-0"
@@ -570,14 +703,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ── Vista Calendario ─────────────────────────────────────────── */}
+          {/* Vista Calendario */}
           {vista === 'calendario' && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              {/* Cabecera del calendario */}
               <div className="flex items-center justify-between px-5 py-3.5"
                 style={{ background:'linear-gradient(135deg,#1a1a2e 0%,#16213e 100%)' }}>
                 <div className="flex items-center gap-2">
-                  {/* Navegación por día */}
                   <button onClick={() => setFecha(f => addDays(f || today, -1))}
                     className="text-white border-0 rounded-lg cursor-pointer flex items-center justify-center text-lg font-bold"
                     style={{ width:28, height:28, background:'rgba(255,255,255,.12)' }}>
@@ -597,7 +728,6 @@ export default function Dashboard() {
                     style={{ background:'rgba(255,255,255,.15)' }}>
                     {appointments.length} {appointments.length === 1 ? 'cita' : 'citas'}
                   </span>
-                  {/* Leyenda */}
                   <div className="hidden sm:flex items-center gap-3 ml-2">
                     {[['#34d399','Confirmada'],['#fbbf24','Pendiente'],['#f87171','Cancelada']].map(([c,l]) => (
                       <div key={l} className="flex items-center gap-1">
@@ -608,7 +738,6 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-
               <TimeGrid
                 fecha={fecha}
                 appointments={appointments}
@@ -625,10 +754,9 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ── Vista Tabla ───────────────────────────────────────────────── */}
+          {/* Vista Tabla */}
           {vista === 'tabla' && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              {/* Cabecera */}
               <div className="flex justify-between items-center px-5 py-3.5"
                 style={{ background:'linear-gradient(135deg,#1a1a2e 0%,#16213e 100%)' }}>
                 <h2 className="text-white font-bold text-sm">
