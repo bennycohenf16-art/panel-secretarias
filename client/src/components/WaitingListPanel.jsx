@@ -38,7 +38,19 @@ export default function WaitingListPanel({ token }) {
     setLoadingOffers(true);
     api(`/api/appointments/available-slots?doctor_id=${offerTarget.doctor_id}&fecha=${offerFecha}`)
       .then(r => r.json())
-      .then(data => setAvailableOffers(Array.isArray(data.slots) ? data.slots : []))
+      .then(data => {
+        let slots = Array.isArray(data.slots) ? data.slots : [];
+        const todayISO = new Date().toLocaleDateString('sv'); // YYYY-MM-DD sin desfase
+        if (offerFecha === todayISO) {
+          const now = new Date();
+          const nowMins = now.getHours() * 60 + now.getMinutes();
+          slots = slots.filter(s => {
+            const [sh, sm] = s.split(':').map(Number);
+            return sh * 60 + sm > nowMins;
+          });
+        }
+        setAvailableOffers(slots);
+      })
       .catch(() => setAvailableOffers([]))
       .finally(() => setLoadingOffers(false));
   }, [offerFecha, offerTarget?.doctor_id]);
@@ -84,7 +96,7 @@ export default function WaitingListPanel({ token }) {
     setOfferMsg('');
     const r = await api('/api/waiting-list/offer', {
       method: 'POST',
-      body: JSON.stringify({ waiting_list_id: offerTarget.id, fecha: offerFecha, hora: offerHora })
+      body: JSON.stringify({ waiting_list_id: offerTarget.id, fecha: offerFecha, hora: offerHora.slice(0, 5) })
     });
     const data = await r.json();
     if (r.ok) {
