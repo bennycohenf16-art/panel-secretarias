@@ -22,7 +22,7 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'panel-jwt-secret-change-me';
 const FACTORY_SECRET = process.env.FACTORY_SECRET || 'factory-secret-change-me';
-const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY.trim()) : null;
 
 const h = fn => (req, res, next) => fn(req, res, next).catch(next);
 
@@ -771,37 +771,56 @@ app.get('/api/reports/performance', auth, h(async (req, res) => {
 // ── Facturación Stripe ────────────────────────────────────────────────────────
 app.post('/api/billing/checkout', auth, h(async (req, res) => {
   if (!stripe) return res.status(500).json({ error: 'Stripe no configurado en este entorno' });
-  if (!process.env.STRIPE_PRICE_ID) return res.status(500).json({ error: 'STRIPE_PRICE_ID no configurado' });
+
+  const priceId = (process.env.STRIPE_PRICE_ID || '').trim();
+  if (!priceId) return res.status(500).json({ error: 'STRIPE_PRICE_ID no configurado' });
 
   const doctorId = req.user.id;
   const dr = await pool.query('SELECT name, email, stripe_customer_id FROM doctors WHERE id=$1', [doctorId]);
   if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
 
   const doctor = dr.rows[0];
-  let customerId = doctor.stripe_customer_id;
 
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: doctor.email,
-      name:  doctor.name,
-      metadata: { doctorId: String(doctorId) }
-    });
-    customerId = customer.id;
-    await pool.query('UPDATE doctors SET stripe_customer_id=$1 WHERE id=$2', [customerId, doctorId]);
+  if (!doctor.email || !doctor.email.includes('@')) {
+    console.error(`[STRIPE CHECKOUT ERROR] Doctor ${doctorId} sin email válido: "${doctor.email}"`);
+    return res.status(400).json({ error: 'El doctor no tiene un email válido registrado.' });
   }
 
-  const panelUrl = (process.env.PANEL_URL || 'https://panel-secretarias.onrender.com').replace(/\/$/, '');
-  const session = await stripe.checkout.sessions.create({
-    customer:   customerId,
-    mode:       'subscription',
-    line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-    metadata:   { doctorId: String(doctorId) },
-    success_url: `${panelUrl}/dashboard?payment=success`,
-    cancel_url:  `${panelUrl}/dashboard?payment=cancelled`,
-  });
+  try {
+    let customerId = doctor.stripe_customer_id;
 
-  console.log(`[STRIPE CHECKOUT] Sesión creada para doctor ${doctorId} → ${session.url}`);
-  res.json({ url: session.url });
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: doctor.email.trim(),
+        name:  (doctor.name || '').trim(),
+        metadata: { doctorId: String(doctorId) }
+      });
+      customerId = customer.id;
+      await pool.query('UPDATE doctors SET stripe_customer_id=$1 WHERE id=$2', [customerId, doctorId]);
+    }
+
+    const panelUrl = (process.env.PANEL_URL || 'https://panel-secretarias.onrender.com').replace(/\/$/, '');
+    const session = await stripe.checkout.sessions.create({
+      customer:    customerId,
+      mode:        'subscription',
+      line_items:  [{ price: priceId, quantity: 1 }],
+      metadata:    { doctorId: String(doctorId) },
+      success_url: `${panelUrl}/dashboard?payment=success`,
+      cancel_url:  `${panelUrl}/dashboard?payment=cancelled`,
+    });
+
+    console.log(`[STRIPE CHECKOUT] Sesión creada para doctor ${doctorId} → ${session.url}`);
+    res.json({ url: session.url });
+
+  } catch (err) {
+    console.error('[STRIPE CHECKOUT ERROR]', err.message);
+    res.status(500).json({
+      error:   'Error al procesar con Stripe',
+      detalle: err.message,
+      tipo:    err.type  || null,
+      codigo:  err.code  || null,
+    });
+  }
 }));
 
 // ── Estado de suscripción del doctor autenticado ─────────────────────────────
