@@ -24,6 +24,11 @@ for (let h = 9; h <= 18; h++) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function decodeJWT(token) {
+  try { return JSON.parse(atob(token.split('.')[1])); }
+  catch { return {}; }
+}
+
 function Bar({ pct, color }) {
   return (
     <div className="w-full bg-gray-100 rounded-full h-2">
@@ -228,6 +233,14 @@ export default function Dashboard() {
   const name  = localStorage.getItem('panel_name') || 'Doctor';
   const token = localStorage.getItem('panel_token');
 
+  // role se lee del JWT (campo estático). subscription_status se obtiene del backend
+  // porque cambia dinámicamente vía webhooks de Stripe y el JWT quedaría obsoleto.
+  const role = decodeJWT(token)?.role || 'doctor';
+
+  // ── Suscripción ────────────────────────────────────────────────────────────
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null); // null = verificando
+  const [loadingCheckout, setLoadingCheckout]       = useState(false);
+
   // ── Agenda states ──────────────────────────────────────────────────────────
   const [appointments, setAppointments] = useState([]);
   const [blockedSlots, setBlockedSlots]  = useState([]);
@@ -255,6 +268,57 @@ export default function Dashboard() {
   const api = useCallback((url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
   , [token]);
+
+  // ── Verificación de suscripción ────────────────────────────────────────────
+  const checkSubscription = useCallback(async () => {
+    try {
+      const r = await api('/api/billing/status');
+      if (r.status === 401) { localStorage.clear(); nav('/login'); return; }
+      const d = await r.json();
+      setSubscriptionStatus(d.subscription_status || 'unpaid');
+    } catch {
+      // Si el fetch falla por red, no penalizar al usuario activo
+      setSubscriptionStatus('active');
+    }
+  }, [api, nav]);
+
+  useEffect(() => {
+    checkSubscription();
+  }, [checkSubscription]);
+
+  // ── Manejo del retorno desde Stripe ───────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('payment')) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    if (params.get('payment') === 'success') {
+      // El webhook puede tener un leve delay — re-verifica tras 2.5 s
+      setTimeout(checkSubscription, 2500);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Checkout Stripe ────────────────────────────────────────────────────────
+  const handleCheckout = async () => {
+    if (loadingCheckout) return;
+    setLoadingCheckout(true);
+    try {
+      const r = await api('/api/billing/checkout', { method: 'POST' });
+      const d = await r.json();
+      if (d.url) {
+        window.location.href = d.url;
+      } else {
+        alert(d.error || 'No se pudo generar el enlace de pago. Intenta de nuevo.');
+        setLoadingCheckout(false);
+      }
+    } catch {
+      alert('Error de red. Verifica tu conexión e intenta de nuevo.');
+      setLoadingCheckout(false);
+    }
+  };
+
+  // ── Derivados de suscripción ───────────────────────────────────────────────
+  // Los administradores nunca son bloqueados. Solo doctores con status inactivo.
+  const isBlocked = role !== 'admin' && (subscriptionStatus === 'unpaid' || subscriptionStatus === 'past_due');
 
   // ── Carga de agenda ────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -949,6 +1013,111 @@ export default function Dashboard() {
                 className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold cursor-pointer border-0">
                 Eliminar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          MURO DE PAGO — Overlay de suscripción inactiva
+          z-[2000] garantiza que queda por encima de todos los modales (z-[1002]).
+          Se renderiza solo cuando subscriptionStatus ya se conoce (≠ null).
+          Los administradores nunca ven este overlay (role === 'admin').
+      ══════════════════════════════════════════════════════════════════════ */}
+
+      {/* Estado de verificación inicial — pantalla de carga rápida */}
+      {subscriptionStatus === null && (
+        <div className="fixed inset-0 z-[2000] bg-white flex flex-col items-center justify-center gap-4">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl"
+            style={{ background: 'linear-gradient(135deg, #25d366, #20b858)' }}>
+            🏥
+          </div>
+          <svg className="animate-spin h-6 w-6 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+          <p className="text-sm text-gray-400 font-medium">Verificando suscripción...</p>
+        </div>
+      )}
+
+      {/* Muro de pago — se activa solo cuando el status es definitivo y está bloqueado */}
+      {subscriptionStatus !== null && isBlocked && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
+          style={{ background: 'rgba(15,23,42,0.82)', backdropFilter: 'blur(6px)' }}>
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+
+            {/* Encabezado del card con gradiente */}
+            <div className="px-8 pt-8 pb-6 text-center"
+              style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)' }}>
+              <div className="w-20 h-20 rounded-2xl mx-auto mb-5 flex items-center justify-center text-4xl"
+                style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', boxShadow: '0 8px 24px rgba(99,102,241,.5)' }}>
+                💳
+              </div>
+              <h2 className="text-2xl font-extrabold text-white mb-2">
+                Suscripción Inactiva
+              </h2>
+              {subscriptionStatus === 'past_due' ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+                  style={{ background: 'rgba(251,191,36,.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,.3)' }}>
+                  ⚠️ Pago pendiente de renovación
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+                  style={{ background: 'rgba(248,113,113,.15)', color: '#f87171', border: '1px solid rgba(248,113,113,.3)' }}>
+                  🔒 Cuenta suspendida
+                </span>
+              )}
+            </div>
+
+            {/* Cuerpo del card */}
+            <div className="px-8 py-7">
+              <p className="text-gray-600 text-sm leading-relaxed text-center mb-7">
+                Tu acceso al panel de control y a la automatización de citas se encuentra suspendido. Activa tu mensualidad para continuar operando.
+              </p>
+
+              {/* Botón de checkout */}
+              <button
+                onClick={handleCheckout}
+                disabled={loadingCheckout}
+                className="w-full py-4 rounded-2xl text-white font-bold text-base cursor-pointer border-0 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
+                style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', boxShadow: '0 8px 24px rgba(99,102,241,.4)' }}>
+                {loadingCheckout ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    Generando enlace de pago...
+                  </span>
+                ) : (
+                  '💳 Activar Suscripción Mensual'
+                )}
+              </button>
+
+              {/* Sellos de confianza */}
+              <div className="flex items-center justify-center gap-4 mt-5">
+                <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <svg className="w-3.5 h-3.5 text-green-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                  Pago seguro con Stripe
+                </div>
+                <div className="w-px h-4 bg-gray-200" />
+                <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <svg className="w-3.5 h-3.5 text-green-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Activa de inmediato
+                </div>
+              </div>
+
+              {/* Logout link */}
+              <div className="text-center mt-6">
+                <button onClick={logout}
+                  className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer bg-transparent border-0 underline transition-colors">
+                  Cerrar sesión
+                </button>
+              </div>
             </div>
           </div>
         </div>

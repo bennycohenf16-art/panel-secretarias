@@ -8,12 +8,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const cron = require('node-cron');
+const Stripe = require('stripe');
+
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const normPhone = (t) => { const d = (t || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : d; };
 
 const app = express();
-app.use(express.json());
-app.use(cors());
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -22,9 +22,104 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'panel-jwt-secret-change-me';
 const FACTORY_SECRET = process.env.FACTORY_SECRET || 'factory-secret-change-me';
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
-// Wrapper — evita que un error async apague el servidor
 const h = fn => (req, res, next) => fn(req, res, next).catch(next);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STRIPE WEBHOOK — CRÍTICO: debe estar ANTES de app.use(express.json()).
+// express.raw() consume el cuerpo crudo necesario para validar la firma.
+// Moverlo después del middleware global rompe stripe.webhooks.constructEvent.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), h(async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe no configurado' });
+
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    console.error('[STRIPE WEBHOOK] Firma inválida:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log(`[STRIPE WEBHOOK] Evento: ${event.type}`);
+
+  try {
+    switch (event.type) {
+
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const doctorId = session.metadata?.doctorId;
+        if (!doctorId) {
+          console.warn('[STRIPE WEBHOOK] checkout.session.completed sin doctorId en metadata');
+          break;
+        }
+        const customerId = session.customer;
+        const sub = await stripe.subscriptions.retrieve(session.subscription);
+        const endsAt = new Date(sub.current_period_end * 1000);
+        await pool.query(
+          'UPDATE doctors SET stripe_customer_id=$1, subscription_status=$2, subscription_ends_at=$3 WHERE id=$4',
+          [customerId, 'active', endsAt, doctorId]
+        );
+        console.log(`[STRIPE WEBHOOK] ✅ Doctor ${doctorId} activado → ${endsAt.toISOString()}`);
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+        const periodEndUnix = invoice.lines?.data?.[0]?.period?.end;
+        if (periodEndUnix) {
+          const endsAt = new Date(periodEndUnix * 1000);
+          await pool.query(
+            "UPDATE doctors SET subscription_status='active', subscription_ends_at=$1 WHERE stripe_customer_id=$2",
+            [endsAt, customerId]
+          );
+        } else {
+          await pool.query(
+            "UPDATE doctors SET subscription_status='active' WHERE stripe_customer_id=$1",
+            [customerId]
+          );
+        }
+        console.log(`[STRIPE WEBHOOK] ✅ Renovación pagada — customer ${customerId}`);
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object;
+        await pool.query(
+          "UPDATE doctors SET subscription_status='unpaid' WHERE stripe_customer_id=$1",
+          [sub.customer]
+        );
+        console.log(`[STRIPE WEBHOOK] ⚠️ Suscripción cancelada — customer ${sub.customer}`);
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        await pool.query(
+          "UPDATE doctors SET subscription_status='past_due' WHERE stripe_customer_id=$1",
+          [invoice.customer]
+        );
+        console.log(`[STRIPE WEBHOOK] ❌ Pago fallido — customer ${invoice.customer}`);
+        break;
+      }
+
+      default:
+        console.log(`[STRIPE WEBHOOK] Evento no manejado: ${event.type}`);
+    }
+  } catch (dbErr) {
+    console.error('[STRIPE WEBHOOK] Error en DB:', dbErr.message);
+    return res.status(500).json({ error: 'Error procesando evento' });
+  }
+
+  res.json({ received: true });
+}));
+
+app.use(express.json());
+app.use(cors());
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tablas PROPIAS de panel-secretarias (coexisten de forma segura con factory_prod):
@@ -38,7 +133,6 @@ async function initDB() {
   const dbHost = (process.env.DATABASE_URL || '').replace(/:[^:@]*@/, ':***@').split('?')[0];
   console.log(`[db] Conectando a: ${dbHost}`);
 
-  // Separados para que un fallo en uno no enmascare al otro
   await pool.query(`
     CREATE TABLE IF NOT EXISTS doctors (
       id            SERIAL PRIMARY KEY,
@@ -66,7 +160,6 @@ async function initDB() {
     )
   `);
 
-  // Migraciones incrementales — seguras de re-ejecutar
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'doctor'`);
   await pool.query(`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE`);
   await pool.query(`
@@ -94,7 +187,6 @@ async function initDB() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS secretary_logs (
       id             SERIAL PRIMARY KEY,
@@ -106,9 +198,13 @@ async function initDB() {
     )
   `);
 
+  // Migraciones de facturación Stripe
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)`);
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'unpaid'`);
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP`);
+
   console.log('[db] Schema panel-secretarias OK');
 
-  // Seed: admin de arranque solo si la tabla doctors está completamente vacía
   const { rows } = await pool.query('SELECT COUNT(*) AS total FROM doctors');
   if (parseInt(rows[0].total) === 0) {
     const hash = await bcrypt.hash('1234', 10);
@@ -218,7 +314,11 @@ app.post('/api/auth/login', h(async (req, res) => {
   const doc = r.rows[0];
   const ok = await bcrypt.compare(password, doc.password_hash);
   if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
-  const token = jwt.sign({ id: doc.id, name: doc.name, email: doc.email }, JWT_SECRET, { expiresIn: '14d' });
+  const token = jwt.sign(
+    { id: doc.id, name: doc.name, email: doc.email, role: doc.role || 'doctor' },
+    JWT_SECRET,
+    { expiresIn: '14d' }
+  );
   res.json({ token, name: doc.name, email: doc.email });
 }));
 
@@ -447,10 +547,12 @@ app.post('/api/appointments', auth, h(async (req, res) => {
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
     [req.user.id, nombre, normPhone(telefono), fecha, hora, motivo || '', 'manual']
   );
-  await pool.query(
-    'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
-    [req.user.id, req.user.name, r.rows[0].id, 'crear_manual']
-  );
+  if (req.user) {
+    await pool.query(
+      'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
+      [req.user.id, req.user.name, r.rows[0].id, 'crear_manual']
+    );
+  }
   res.json(r.rows[0]);
 }));
 
@@ -472,7 +574,7 @@ app.put('/api/appointments/:id', auth, h(async (req, res) => {
   if (!r.rows.length) return res.status(404).json({ error: 'No encontrada' });
 
   const nuevoLimpioP = (status || '').toLowerCase().trim();
-  if (nuevoLimpioP === 'confirmada' || nuevoLimpioP === 'cancelada') {
+  if (req.user && (nuevoLimpioP === 'confirmada' || nuevoLimpioP === 'cancelada')) {
     await pool.query(
       'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
       [req.user.id, req.user.name, citaId, nuevoLimpioP === 'confirmada' ? 'confirmar' : 'cancelar']
@@ -503,7 +605,7 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
     [nuevoEstado, citaId, doctorId]
   );
 
-  if (nuevoEstado === 'confirmada' || nuevoEstado === 'cancelada') {
+  if (req.user && (nuevoEstado === 'confirmada' || nuevoEstado === 'cancelada')) {
     await pool.query(
       'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
       [req.user.id, req.user.name, citaId, nuevoEstado === 'confirmada' ? 'confirmar' : 'cancelar']
@@ -533,7 +635,6 @@ app.get('/api/patients/:telefono', auth, h(async (req, res) => {
 app.get('/api/analytics', auth, h(async (req, res) => {
   const did = req.user.id;
   const [sourceRes, statusRes, dowRes] = await Promise.all([
-    // A: citas por origen en los últimos 30 días
     pool.query(
       `SELECT source, COUNT(*)::int AS count
        FROM appointments
@@ -542,7 +643,6 @@ app.get('/api/analytics', auth, h(async (req, res) => {
        GROUP BY source`,
       [did]
     ),
-    // B: distribución por estado (histórico completo)
     pool.query(
       `SELECT status, COUNT(*)::int AS count
        FROM appointments
@@ -550,7 +650,6 @@ app.get('/api/analytics', auth, h(async (req, res) => {
        GROUP BY status`,
       [did]
     ),
-    // C: demanda por día de semana (0 = Dom … 6 = Sáb)
     pool.query(
       `SELECT EXTRACT(DOW FROM fecha)::int AS dow, COUNT(*)::int AS count
        FROM appointments
@@ -591,7 +690,6 @@ app.post('/api/waiting-list', auth, h(async (req, res) => {
   res.json(rows[0]);
 }));
 
-// Ofrecer un espacio liberado a un paciente en espera
 app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
   const { waiting_list_id, fecha, hora } = req.body;
   if (!waiting_list_id || !fecha || !hora)
@@ -615,7 +713,6 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
 
   const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
   const apiKey  = process.env.INTERNAL_API_KEY || '';
-  // send-offer: además de enviar el WA, guarda conv_state ESPERANDO_OFERTA en bot-factory
   const resp = await fetch(`${baseUrl}/api/messages/send-offer`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
@@ -671,7 +768,70 @@ app.get('/api/reports/performance', auth, h(async (req, res) => {
   })));
 }));
 
-// ── Lógica de recordatorios (también usada por el cron) ──────────────────────
+// ── Facturación Stripe ────────────────────────────────────────────────────────
+app.post('/api/billing/checkout', auth, h(async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe no configurado en este entorno' });
+  if (!process.env.STRIPE_PRICE_ID) return res.status(500).json({ error: 'STRIPE_PRICE_ID no configurado' });
+
+  const doctorId = req.user.id;
+  const dr = await pool.query('SELECT name, email, stripe_customer_id FROM doctors WHERE id=$1', [doctorId]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+
+  const doctor = dr.rows[0];
+  let customerId = doctor.stripe_customer_id;
+
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: doctor.email,
+      name:  doctor.name,
+      metadata: { doctorId: String(doctorId) }
+    });
+    customerId = customer.id;
+    await pool.query('UPDATE doctors SET stripe_customer_id=$1 WHERE id=$2', [customerId, doctorId]);
+  }
+
+  const panelUrl = (process.env.PANEL_URL || 'https://panel-secretarias.onrender.com').replace(/\/$/, '');
+  const session = await stripe.checkout.sessions.create({
+    customer:   customerId,
+    mode:       'subscription',
+    line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+    metadata:   { doctorId: String(doctorId) },
+    success_url: `${panelUrl}/dashboard?payment=success`,
+    cancel_url:  `${panelUrl}/dashboard?payment=cancelled`,
+  });
+
+  console.log(`[STRIPE CHECKOUT] Sesión creada para doctor ${doctorId} → ${session.url}`);
+  res.json({ url: session.url });
+}));
+
+// ── Estado de suscripción del doctor autenticado ─────────────────────────────
+app.get('/api/billing/status', auth, h(async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT subscription_status, subscription_ends_at FROM doctors WHERE id=$1',
+    [req.user.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
+  res.json({
+    subscription_status:  rows[0].subscription_status  || 'unpaid',
+    subscription_ends_at: rows[0].subscription_ends_at || null,
+  });
+}));
+
+// ── Panel de control de facturación — solo admin ──────────────────────────────
+app.get('/api/admin/billing-control', auth, h(async (req, res) => {
+  const me = await pool.query('SELECT role FROM doctors WHERE id=$1', [req.user.id]);
+  if (!me.rows.length || me.rows[0].role !== 'admin')
+    return res.status(403).json({ error: 'Acceso denegado' });
+
+  const { rows } = await pool.query(
+    `SELECT id, name, email, subscription_status, subscription_ends_at
+     FROM doctors
+     ORDER BY subscription_ends_at DESC NULLS LAST`
+  );
+  res.json(rows);
+}));
+
+// ── Recordatorios ─────────────────────────────────────────────────────────────
 async function runReminders() {
   console.log('[CRON Recordatorios] Iniciando revisión...');
   const { rows: appts } = await pool.query(`
@@ -730,7 +890,6 @@ async function runReminders() {
   return { enviados, total: appts.length };
 }
 
-// Endpoint de prueba manual — solo admin autenticado
 app.post('/api/admin/run-reminders', auth, h(async (req, res) => {
   const result = await runReminders();
   res.json({ ok: true, ...result });
@@ -750,7 +909,7 @@ app.get('/api/bot-status', auth, h(async (req, res) => {
   res.json(await resp.json());
 }));
 
-// ── Manejo global de errores — evita que el servidor se apague ────────────────
+// ── Manejo global de errores ──────────────────────────────────────────────────
 app.use((err, req, res, _next) => {
   console.error('[error]', err.message);
   res.status(500).json({ error: 'Error interno del servidor' });
@@ -765,7 +924,6 @@ initDB()
   .then(() => {
     app.listen(PORT, () => console.log(`\n🏥 Panel Secretarias en http://localhost:${PORT}\n`));
 
-    // ── Recordatorios automáticos — 09:00 AM hora CDMX todos los días ──────────
     cron.schedule('0 9 * * *', () => {
       runReminders().catch(err =>
         console.error('[CRON Recordatorios] Error crítico en la tarea:', err.message)
