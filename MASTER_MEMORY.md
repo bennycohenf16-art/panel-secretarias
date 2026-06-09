@@ -326,7 +326,37 @@ app.use(express.json())   // ← después
 
 ---
 
-## 6. REGLAS INVARIANTES — PROHIBIDO ROMPER
+## 6. DEPLOY — HOOKS Y PROCEDIMIENTO OBLIGATORIO
+
+### Deploy Hooks de Render (disparar con curl tras cada push)
+
+```
+bot-factory:
+  curl -s -X POST "https://api.render.com/deploy/srv-d8e7evcm0tmc73ek52a0?key=DGwVLCg9mGo"
+
+panel-secretarias:
+  curl -s -X POST "https://api.render.com/deploy/srv-d8c8b0q8qa3s73fpb1ng?key=afKT9V9X1OI"
+```
+
+### Regla de despliegue (OBLIGATORIO tras cada push)
+
+Después de cada `git push origin main` exitoso, ejecutar los curl de los hooks correspondientes. El auto-deploy de Render no es confiable. El hook es la única garantía de que el código llega a producción.
+
+Secuencia estándar de cierre de sprint:
+```bash
+# 1. commit + push
+git add <archivos> && git commit -m "..." && git push origin main
+
+# 2. disparar deploy en Render (siempre, aunque diga "up to date")
+curl -s -X POST "https://api.render.com/deploy/srv-d8e7evcm0tmc73ek52a0?key=DGwVLCg9mGo"   # bot-factory
+curl -s -X POST "https://api.render.com/deploy/srv-d8c8b0q8qa3s73fpb1ng?key=afKT9V9X1OI"   # panel-secretarias (solo si se tocó)
+```
+
+Respuesta esperada: `{"deploy":{"id":"dep-..."}}` — confirma que Render empezó a compilar.
+
+---
+
+## 7. REGLAS INVARIANTES — PROHIBIDO ROMPER
 
 | # | Regla |
 |---|---|
