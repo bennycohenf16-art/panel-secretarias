@@ -549,6 +549,17 @@ app.get('/api/appointments/month', auth, h(async (req, res) => {
   res.json({ total: parseInt(r.rows[0].total) });
 }));
 
+app.get('/api/appointments/rejected', auth, h(async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, nombre, telefono, fecha, hora, motivo, created_at
+     FROM appointments WHERE doctor_id=$1 AND status='rechazada'
+     ORDER BY created_at DESC`,
+    [req.user.id]
+  );
+  console.log(`[REJECTED] doctor_id=${req.user.id} → ${r.rows.length} registros`);
+  res.json(r.rows);
+}));
+
 app.post('/api/appointments', authOrInternal, h(async (req, res) => {
   console.log('[BACKEND INCOMING APPOINTMENT]', req.body);
   const { nombre, telefono, fecha, hora, motivo, status: bodyStatus, doctor_id: bodyDoctorId } = req.body;

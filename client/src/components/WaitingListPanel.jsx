@@ -30,9 +30,9 @@ export default function WaitingListPanel({ token }) {
   const loadRechazadas = async () => {
     setLoadingRech(true);
     try {
-      const r = await api('/api/appointments');
+      const r = await api('/api/appointments/rejected');
       const data = await r.json();
-      setRechazadas(Array.isArray(data) ? data.filter(a => a.status === 'rechazada') : []);
+      setRechazadas(Array.isArray(data) ? data : []);
     } catch {
       setRechazadas([]);
     } finally {

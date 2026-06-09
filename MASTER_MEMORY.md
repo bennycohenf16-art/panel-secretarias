@@ -327,6 +327,25 @@ app.use(express.json())   // ← después
 
 ---
 
+### Sprint 2026-06-09 (parche 4) — Endpoint dedicado /api/appointments/rejected
+
+**Problema:** la sección de rechazadas no aparecía aunque el commit d047e61 ya estaba desplegado.
+
+**Causa raíz:** `GET /api/appointments` devuelve correctamente TODOS los status incluyendo 'rechazada', pero la llamada en el cliente podía fallar silenciosamente (catch → array vacío) sin ningún log de backend, sin forma de diagnosticar si el `doctor_id` del appointment coincide con el del usuario loggeado.
+
+**Solución — panel-secretarias `server.js`:**
+- Nuevo endpoint `GET /api/appointments/rejected` (registrado DESPUÉS de `/month` y ANTES de `/:id`).
+- Query explícito: `WHERE doctor_id=$1 AND status='rechazada' ORDER BY created_at DESC`.
+- Loguea `[REJECTED] doctor_id=X → N registros` en cada llamada para diagnóstico en Render.
+
+**Solución — WaitingListPanel.jsx:**
+- `loadRechazadas()` ahora llama `/api/appointments/rejected` directamente.
+- No necesita filtrar en cliente — el backend ya devuelve solo rechazadas.
+
+**Invariante:** ruta registrada ANTES de cualquier ruta paramétrica `/:id` para que Express no la confunda con un ID numérico (aunque no hay `GET /:id`, la posición es defensiva).
+
+---
+
 ### Sprint 2026-06-09 (parche 3) — Historial de Ofertas Rechazadas en panel UI
 
 **Problema:** las citas con `status='rechazada'` ya se guardaban en la DB (confirmado: ID 66), pero eran invisibles para las secretarias — no aparecían en ninguna sección del panel.
