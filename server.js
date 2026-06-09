@@ -1,5 +1,10 @@
 process.env.TZ = 'America/Mexico_City';
 require('dotenv').config();
+
+// Guarda de arranque — el sistema no puede operar sin estas variables
+if (!process.env.DATABASE_URL) { console.error('[FATAL] DATABASE_URL no definida — abortando.'); process.exit(1); }
+if (!process.env.JWT_SECRET)   { console.error('[FATAL] JWT_SECRET no definida — abortando.'); process.exit(1); }
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -20,8 +25,8 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'panel-jwt-secret-change-me';
-const FACTORY_SECRET = process.env.FACTORY_SECRET || 'factory-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET;
+const FACTORY_SECRET = process.env.FACTORY_SECRET;
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY.trim()) : null;
 
 const h = fn => (req, res, next) => fn(req, res, next).catch(next);
@@ -232,7 +237,8 @@ function auth(req, res, next) {
 }
 
 function authOrInternal(req, res, next) {
-  if (req.headers['x-internal-key'] === process.env.INTERNAL_API_KEY) {
+  const internalKey = process.env.INTERNAL_API_KEY;
+  if (internalKey && req.headers['x-internal-key'] === internalKey) {
     req.user = null;
     return next();
   }
@@ -333,7 +339,7 @@ app.post('/api/auth/login', h(async (req, res) => {
 // ── Webhook: bot envía cita nueva ─────────────────────────────────────────────
 app.post('/api/webhook', h(async (req, res) => {
   const secret = process.env.INTERNAL_WEBHOOK_TOKEN;
-  if (secret && req.headers['x-webhook-token'] !== secret)
+  if (!secret || req.headers['x-webhook-token'] !== secret)
     return res.status(401).json({ error: 'Token de webhook inválido' });
   const { token, nombre, telefono, fecha, hora, motivo } = req.body;
   if (!token) return res.status(401).json({ error: 'Token requerido' });
