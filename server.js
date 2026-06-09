@@ -571,6 +571,14 @@ app.post('/api/appointments', authOrInternal, h(async (req, res) => {
     'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,status,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
     [doctorId, nombre, normPhone(telefono), fecha, hora, motivo || '', status, source]
   );
+  // Cuando el bot registra una nueva cita, limpiar rechazos anteriores del mismo paciente
+  // para que no queden huérfanos en el historial de "Citas Rechazadas".
+  if (source === 'whatsapp') {
+    await pool.query(
+      "UPDATE appointments SET status='reagendada' WHERE doctor_id=$1 AND telefono=$2 AND status='rechazada' AND id!=$3",
+      [doctorId, normPhone(telefono), r.rows[0].id]
+    );
+  }
   if (req.user) {
     await pool.query(
       'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
