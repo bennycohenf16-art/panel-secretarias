@@ -550,6 +550,7 @@ app.get('/api/appointments/month', auth, h(async (req, res) => {
 }));
 
 app.post('/api/appointments', authOrInternal, h(async (req, res) => {
+  console.log('[INCOMING APPOINTMENT]', req.body);
   const { nombre, telefono, fecha, hora, motivo, status: bodyStatus, doctor_id: bodyDoctorId } = req.body;
   const doctorId = req.user?.id ?? bodyDoctorId;
   if (!doctorId) return res.status(400).json({ error: 'doctor_id requerido' });
@@ -750,7 +751,7 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
     const resp = await fetch(`${baseUrl}/api/messages/send-offer`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-      body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text, fecha, hora: horaFmt, nombre, telefono })
+      body:    JSON.stringify({ botSlug: bot_slug, phone: telefono, text, fecha, hora: horaFmt, nombre, telefono, doctor_id: req.user.id })
     });
     const raw = await resp.text();
     if (!resp.ok) throw new Error(`Bot Factory: ${raw.substring(0, 200)}`);
