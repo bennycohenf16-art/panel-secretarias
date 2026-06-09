@@ -14,6 +14,8 @@ export default function WaitingListPanel({ token }) {
   const [offerMsg, setOfferMsg]             = useState('');
   const [availableOffers, setAvailableOffers] = useState([]);
   const [loadingOffers, setLoadingOffers]   = useState(false);
+  const [rechazadas, setRechazadas]         = useState([]);
+  const [loadingRech, setLoadingRech]       = useState(false);
 
   const api = (url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
@@ -25,7 +27,20 @@ export default function WaitingListPanel({ token }) {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  const loadRechazadas = async () => {
+    setLoadingRech(true);
+    try {
+      const r = await api('/api/appointments');
+      const data = await r.json();
+      setRechazadas(Array.isArray(data) ? data.filter(a => a.status === 'rechazada') : []);
+    } catch {
+      setRechazadas([]);
+    } finally {
+      setLoadingRech(false);
+    }
+  };
+
+  useEffect(() => { load(); loadRechazadas(); }, []);
 
   // Fetch de slots disponibles cada vez que cambia la fecha o el paciente objetivo
   useEffect(() => {
@@ -219,6 +234,56 @@ export default function WaitingListPanel({ token }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Historial de Ofertas Rechazadas */}
+      <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div className="flex justify-between items-center px-5 py-3.5"
+          style={{ background: 'linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)' }}>
+          <h2 className="text-white font-bold text-sm">🚫 Historial de Ofertas Rechazadas</h2>
+          <span className="text-white text-xs font-semibold px-3 py-0.5 rounded-full"
+            style={{ background: 'rgba(255,255,255,.15)' }}>
+            {rechazadas.length} {rechazadas.length === 1 ? 'registro' : 'registros'}
+          </span>
+        </div>
+
+        {loadingRech ? (
+          <div className="py-10 text-center text-gray-400">
+            <div className="text-3xl mb-2">⏳</div>
+            <p className="text-sm">Cargando...</p>
+          </div>
+        ) : rechazadas.length === 0 ? (
+          <div className="py-10 text-center text-gray-400">
+            <div className="text-4xl mb-2">✅</div>
+            <p className="text-sm font-semibold text-gray-500">Sin ofertas rechazadas.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-50">
+                  {['Paciente', 'Teléfono', 'Fecha ofrecida', 'Hora'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rechazadas.map((rec, i) => (
+                  <tr key={rec.id} className={`hover:bg-red-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                    <td className="px-4 py-3 font-bold text-sm text-[#1a1a2e]">{rec.nombre || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                      {rec.telefono ? `+${String(rec.telefono).replace(/\D/g, '')}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{fmtFecha(rec.fecha)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-[#1a1a2e] whitespace-nowrap">
+                      {rec.hora ? String(rec.hora).slice(0, 5) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

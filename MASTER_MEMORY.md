@@ -246,6 +246,7 @@ app.use(express.json())   // ← después
 | Filtro horas pasadas en modal oferta | ✅ Producción | 9baab91 |
 | Crash SÍ WhatsApp — savePatientMulti en ESPERANDO_OFERTA | ✅ Producción | 923da14 |
 | Registro de rechazos de oferta (status='rechazada') | ✅ Producción | sprint 2026-06-09 |
+| Historial de Ofertas Rechazadas en panel UI | ✅ Producción | sprint 2026-06-09 |
 
 ---
 
@@ -323,6 +324,23 @@ app.use(express.json())   // ← después
 - `catch` usa `e.stack || e.message`.
 
 **No hay bugs abiertos al cierre de este parche.**
+
+---
+
+### Sprint 2026-06-09 (parche 3) — Historial de Ofertas Rechazadas en panel UI
+
+**Problema:** las citas con `status='rechazada'` ya se guardaban en la DB (confirmado: ID 66), pero eran invisibles para las secretarias — no aparecían en ninguna sección del panel.
+
+**Solución:**
+
+**panel-secretarias `client/src/components/WaitingListPanel.jsx`:**
+- Se agrega estado `rechazadas` + `loadingRech` y función `loadRechazadas()`.
+- `loadRechazadas()` llama `GET /api/appointments` (sin filtro de fecha) y filtra `status === 'rechazada'` en el cliente.
+- Ambas cargas (`load()` + `loadRechazadas()`) se disparan juntas en el `useEffect` inicial.
+- Se añade una nueva sección "🚫 Historial de Ofertas Rechazadas" debajo de la lista de espera (justo antes del modal de oferta).
+- Tabla con columnas: Paciente, Teléfono, Fecha ofrecida, Hora.
+- Reutiliza `fmtFecha()` ya existente para parsear `fecha` sin desfase de zona horaria.
+- `npm run build` ejecutado y exitoso (R8 aplicada).
 
 ---
 
