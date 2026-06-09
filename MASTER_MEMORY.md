@@ -281,7 +281,28 @@ app.use(express.json())   // ← después
 - Usa el mismo patrón `execute()` directo que el bloque SÍ (no hay fetch HTTP en este flujo — bot-factory tiene acceso directo a la DB compartida).
 - R1 intacta: P1c (`ESPERANDO_OFERTA`) sigue bloqueando todo; el insert va en el único camino de salida NO.
 
-**No hay bugs abiertos al cierre de este sprint.**
+---
+
+### Sprint 2026-06-09 (parche) — doctor_id en conv_state + logging diagnóstico — commits `1380260` (bot-factory), `1c23531` (panel-secretarias)
+
+**Problema:** en producción, los rechazos de oferta no se guardaban. Causa raíz: `doctor_id` nunca se almacenaba en `conv_state.data`; si el closure `doctorId` era null, la condición `if (fRech && hRech && doctorId)` fallaba silenciosamente sin log.
+
+**Fixes aplicados:**
+
+**panel-secretarias `server.js`:**
+- `POST /api/waiting-list/offer`: ahora incluye `doctor_id: req.user.id` en el body enviado a `bot-factory/send-offer`.
+- `POST /api/appointments`: agrega `console.log('[INCOMING APPOINTMENT]', req.body)` al inicio para diagnóstico en Render.
+
+**bot-factory `server.js` — send-offer:**
+- Extrae `doctor_id` del body (`doctorIdOffer`) y lo guarda en `conv_state.data` junto a `nombre`, `telefono` y `oferta`.
+
+**bot-factory `bot-engine.js` — ESPERANDO_OFERTA bloque NO:**
+- Introduce `effectiveDoctorId = doctorId || state.doctor_id || null` para usar el valor del estado como fallback.
+- Agrega log diagnóstico completo antes del INSERT (valores de `fRech`, `hRech`, `doctorId`, `state.doctor_id`).
+- Agrega `console.warn` cuando la condición falla, indicando qué valor es falso.
+- El `catch` ahora loguea el payload completo para facilitar diagnóstico en Render.
+
+**No hay bugs abiertos al cierre de este parche.**
 
 ---
 
