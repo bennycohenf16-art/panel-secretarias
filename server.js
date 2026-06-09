@@ -550,13 +550,14 @@ app.get('/api/appointments/month', auth, h(async (req, res) => {
 }));
 
 app.post('/api/appointments', authOrInternal, h(async (req, res) => {
-  const { nombre, telefono, fecha, hora, motivo, doctor_id: bodyDoctorId } = req.body;
+  const { nombre, telefono, fecha, hora, motivo, status: bodyStatus, doctor_id: bodyDoctorId } = req.body;
   const doctorId = req.user?.id ?? bodyDoctorId;
   if (!doctorId) return res.status(400).json({ error: 'doctor_id requerido' });
   const source = req.user ? 'manual' : 'whatsapp';
+  const status = (!req.user && bodyStatus) ? bodyStatus : 'pendiente';
   const r = await pool.query(
-    'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,source) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [doctorId, nombre, normPhone(telefono), fecha, hora, motivo || '', source]
+    'INSERT INTO appointments (doctor_id,nombre,telefono,fecha,hora,motivo,status,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+    [doctorId, nombre, normPhone(telefono), fecha, hora, motivo || '', status, source]
   );
   if (req.user) {
     await pool.query(
