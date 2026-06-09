@@ -381,7 +381,16 @@ app.use(express.json())   // ← después
 
 ---
 
-## 6. DEPLOY — HOOKS Y PROCEDIMIENTO OBLIGATORIO
+## 6. PROTOCOLO ESTRICTO DE GIT Y DESPLIEGUE (PROHIBIDO COLAPSAR RENDER)
+
+1. **CAMBIOS EN LOCAL:** Todas las modificaciones de código, refactorizaciones y compilaciones (`npm run build`) se hacen exclusivamente en local.
+2. **COMMITS CONSOLIDADOS:** Queda terminantemente prohibido hacer micro-commits o empujar cambios línea por línea. Se agrupan los cambios por feature o fix completo.
+3. **PROHIBICIÓN DE PUSH AUTOMÁTICO:** Claude TIENE PROHIBIDO ejecutar `git push` por iniciativa propia bajo ninguna circunstancia.
+4. **CONTROL DE FLUJO:** Al terminar una tarea, Claude guardará los cambios en un commit local, se detendrá y le preguntará al usuario: "Código listo en local. ¿Confirmas el push definitivo?".
+
+---
+
+## 7. DEPLOY — HOOKS Y PROCEDIMIENTO OBLIGATORIO
 
 ### Deploy Hooks de Render (disparar con curl tras cada push)
 
