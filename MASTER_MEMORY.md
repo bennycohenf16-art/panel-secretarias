@@ -302,6 +302,26 @@ app.use(express.json())   // ← después
 - Agrega `console.warn` cuando la condición falla, indicando qué valor es falso.
 - El `catch` ahora loguea el payload completo para facilitar diagnóstico en Render.
 
+---
+
+### Sprint 2026-06-09 (parche 2) — try/catch SÍ branch + fresh doctor_id lookup + logging completo — commit `38b6355` (bot-factory)
+
+**Problemas encontrados en revisión:**
+1. Bloque SÍ de ESPERANDO_OFERTA ejecutaba `execute(INSERT)` sin try/catch — cualquier error de DB propagaba sin atrapar, `clearConvState` no corría, el paciente quedaba atascado en step 8 para siempre ("el flujo se rompe").
+2. Si tanto `doctorId` (closure) como `state.doctor_id` eran null en el momento del rechazo, el INSERT se saltaba sin fallback.
+3. Los logs no incluían `state.oferta` completo ni `e.stack`, imposible diagnosticar en Render.
+
+**Fixes aplicados — bot-factory `bot-engine.js`:**
+- Bloque SÍ: todo el INSERT + savePatientMulti dentro de try/catch; `clearConvState` siempre corre.
+- Bloque SÍ: usa `effectiveDIdSi = doctorId || state.doctor_id` (igual que el bloque NO).
+- Bloque NO: si `effectiveDoctorId` sigue null después de closure + state, hace `SELECT id FROM doctors WHERE bot_slug=$1` en caliente como último recurso.
+- Logging de entrada al bloque incluye `JSON.stringify(state.oferta)` y `state.doctor_id`.
+- catch blocks usan `e.stack || e.message` y loguean `oferta_raw`.
+
+**bot-factory `server.js` — send-offer:**
+- Log de `[OFERTA TRABADA]` ahora incluye `doctor_id`, `fecha`, `hora` para confirmar qué se almacenó.
+- `catch` usa `e.stack || e.message`.
+
 **No hay bugs abiertos al cierre de este parche.**
 
 ---
