@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
+const todayISO = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD sin desfase
+
 export default function WaitingListPanel({ token }) {
   const [lista, setLista]           = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -7,15 +9,15 @@ export default function WaitingListPanel({ token }) {
   const [telefono, setTelefono]     = useState('');
   const [saving, setSaving]         = useState(false);
   const [addMsg, setAddMsg]         = useState('');
-  const [offerTarget, setOfferTarget]       = useState(null); // paciente al que se ofrece espacio
-  const [offerFecha, setOfferFecha]         = useState('');
-  const [offerHora, setOfferHora]           = useState('');
-  const [offering, setOffering]             = useState(false);
-  const [offerMsg, setOfferMsg]             = useState('');
+  const [offerTarget, setOfferTarget]         = useState(null);
+  const [offerFecha, setOfferFecha]           = useState('');
+  const [offerHora, setOfferHora]             = useState('');
+  const [offering, setOffering]               = useState(false);
+  const [offerMsg, setOfferMsg]               = useState('');
   const [availableOffers, setAvailableOffers] = useState([]);
-  const [loadingOffers, setLoadingOffers]   = useState(false);
-  const [rechazadas, setRechazadas]         = useState([]);
-  const [loadingRech, setLoadingRech]       = useState(false);
+  const [loadingOffers, setLoadingOffers]     = useState(false);
+  const [rechazadas, setRechazadas]           = useState([]);
+  const [loadingRech, setLoadingRech]         = useState(false);
 
   const api = (url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
@@ -42,21 +44,21 @@ export default function WaitingListPanel({ token }) {
 
   useEffect(() => { load(); loadRechazadas(); }, []);
 
-  // Fetch de slots disponibles cada vez que cambia la fecha o el paciente objetivo
+  // Fetch slots disponibles al cambiar fecha o paciente objetivo
   useEffect(() => {
-    if (!offerTarget?.doctor_id || !offerFecha) {
-      setAvailableOffers([]);
-      return;
-    }
+    // _isReoffer no tiene doctor_id pero sí necesita slots
+    const canFetch = (offerTarget?.doctor_id || offerTarget?._isReoffer) && offerFecha;
+    if (!canFetch) { setAvailableOffers([]); return; }
+
     setOfferHora('');
     setAvailableOffers([]);
     setLoadingOffers(true);
-    api(`/api/appointments/available-slots?doctor_id=${offerTarget.doctor_id}&fecha=${offerFecha}`)
+    api(`/api/appointments/available-slots?fecha=${offerFecha}`)
       .then(r => r.json())
       .then(data => {
         let slots = Array.isArray(data.slots) ? data.slots : [];
-        const todayISO = new Date().toLocaleDateString('sv'); // YYYY-MM-DD sin desfase
-        if (offerFecha === todayISO) {
+        // Filtrar horas pasadas si es hoy
+        if (offerFecha === todayISO()) {
           const now = new Date();
           const nowMins = now.getHours() * 60 + now.getMinutes();
           slots = slots.filter(s => {
@@ -68,7 +70,7 @@ export default function WaitingListPanel({ token }) {
       })
       .catch(() => setAvailableOffers([]))
       .finally(() => setLoadingOffers(false));
-  }, [offerFecha, offerTarget?.doctor_id]);
+  }, [offerFecha, offerTarget?.doctor_id, offerTarget?._isReoffer]);
 
   const add = async (e) => {
     e.preventDefault();
@@ -80,8 +82,7 @@ export default function WaitingListPanel({ token }) {
       body: JSON.stringify({ nombre: nombre.trim(), telefono: telefono.trim() })
     });
     if (r.ok) {
-      setNombre('');
-      setTelefono('');
+      setNombre(''); setTelefono('');
       setAddMsg('✅ Paciente guardado en la lista.');
       await load();
       setTimeout(() => setAddMsg(''), 3000);
@@ -97,8 +98,18 @@ export default function WaitingListPanel({ token }) {
     setLista(prev => prev.filter(p => p.id !== id));
   };
 
+  // Abrir modal de oferta desde lista de espera
   const openOffer = (p) => {
     setOfferTarget(p);
+    setOfferFecha('');
+    setOfferHora('');
+    setOfferMsg('');
+    setAvailableOffers([]);
+  };
+
+  // Abrir modal de oferta desde cita rechazada (pre-carga nombre y teléfono)
+  const openOfferFromRechazada = (rec) => {
+    setOfferTarget({ _isReoffer: true, nombre: rec.nombre, telefono: rec.telefono });
     setOfferFecha('');
     setOfferHora('');
     setOfferMsg('');
@@ -109,14 +120,19 @@ export default function WaitingListPanel({ token }) {
     if (!offerFecha || !offerHora) return;
     setOffering(true);
     setOfferMsg('');
-    const r = await api('/api/waiting-list/offer', {
-      method: 'POST',
-      body: JSON.stringify({ waiting_list_id: offerTarget.id, fecha: offerFecha, hora: offerHora.replace(/[^0-9:]/g, '').slice(0, 5) })
-    });
+
+    const horaLimpia = offerHora.replace(/[^0-9:]/g, '').slice(0, 5);
+    const body = offerTarget._isReoffer
+      ? { nombre: offerTarget.nombre, telefono: offerTarget.telefono, fecha: offerFecha, hora: horaLimpia }
+      : { waiting_list_id: offerTarget.id, fecha: offerFecha, hora: horaLimpia };
+
+    const r = await api('/api/waiting-list/offer', { method: 'POST', body: JSON.stringify(body) });
     const data = await r.json();
     if (r.ok) {
-      setOfferMsg('✅ WhatsApp enviado. El paciente fue removido de la lista.');
-      setLista(prev => prev.filter(p => p.id !== offerTarget.id));
+      setOfferMsg('✅ WhatsApp enviado.');
+      if (!offerTarget._isReoffer) {
+        setLista(prev => prev.filter(p => p.id !== offerTarget.id));
+      }
       setTimeout(() => { setOfferTarget(null); setOfferMsg(''); }, 2200);
     } else {
       setOfferMsg(`❌ ${data.error || 'Error al enviar'}`);
@@ -127,12 +143,9 @@ export default function WaitingListPanel({ token }) {
   const fmtDate = (ts) =>
     new Date(ts).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  // Parsea fecha_preferida sin desfase de zona horaria.
-  // Postgres devuelve DATE como ISO completo ("2025-06-04T06:00:00.000Z");
-  // concatenar 'T12:00:00' a eso rompe el parse → extraer solo YYYY-MM-DD primero.
   const fmtFecha = (raw) => {
     if (!raw) return 'Por definir';
-    const iso = String(raw).slice(0, 10);           // siempre "YYYY-MM-DD"
+    const iso = String(raw).slice(0, 10);
     const [y, m, d] = iso.split('-').map(Number);
     if (!y || !m || !d || isNaN(y + m + d)) return 'Por definir';
     return new Date(y, m - 1, d, 12).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
@@ -171,7 +184,7 @@ export default function WaitingListPanel({ token }) {
         </div>
       </div>
 
-      {/* Lista */}
+      {/* Lista de espera */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         <div className="flex justify-between items-center px-5 py-3.5"
           style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
@@ -264,7 +277,7 @@ export default function WaitingListPanel({ token }) {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-50">
-                  {['Paciente', 'Teléfono', 'Fecha ofrecida', 'Hora'].map(h => (
+                  {['Paciente', 'Teléfono', 'Fecha rechazada', 'Hora', 'Acción'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -280,6 +293,15 @@ export default function WaitingListPanel({ token }) {
                     <td className="px-4 py-3 text-sm font-bold text-[#1a1a2e] whitespace-nowrap">
                       {rec.hora ? String(rec.hora).slice(0, 5) : '—'}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => openOfferFromRechazada(rec)}
+                        title="Ofrecer nuevo horario a este paciente"
+                        className="px-3 py-1.5 rounded-lg border-0 cursor-pointer text-xs font-bold text-white whitespace-nowrap"
+                        style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)' }}>
+                        🔄 Nuevo horario
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -292,8 +314,12 @@ export default function WaitingListPanel({ token }) {
       {offerTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1002] p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-            <div className="text-3xl mb-2 text-center">⚡</div>
-            <h3 className="text-base font-bold text-center mb-0.5">Ofrecer Espacio Liberado</h3>
+            <div className="text-3xl mb-2 text-center">
+              {offerTarget._isReoffer ? '🔄' : '⚡'}
+            </div>
+            <h3 className="text-base font-bold text-center mb-0.5">
+              {offerTarget._isReoffer ? 'Re-ofrecer Horario' : 'Ofrecer Espacio Liberado'}
+            </h3>
             <p className="text-sm text-gray-500 text-center mb-5">
               Se enviará un WhatsApp a <strong>{offerTarget.nombre}</strong>
             </p>
@@ -301,7 +327,11 @@ export default function WaitingListPanel({ token }) {
             <div className="space-y-3 mb-5">
               <div>
                 <label className="text-xs font-semibold text-gray-500 block mb-1">Fecha del espacio</label>
-                <input type="date" value={offerFecha} onChange={e => setOfferFecha(e.target.value)}
+                <input
+                  type="date"
+                  value={offerFecha}
+                  min={todayISO()}
+                  onChange={e => setOfferFecha(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border-2 border-gray-100 text-sm focus:border-amber-400 focus:outline-none" />
               </div>
               <div>

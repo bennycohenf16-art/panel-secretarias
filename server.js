@@ -715,22 +715,44 @@ app.post('/api/waiting-list', auth, h(async (req, res) => {
 }));
 
 app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
-  const { waiting_list_id, fecha, hora } = req.body;
-  if (!waiting_list_id || !fecha || !hora)
-    return res.status(400).json({ error: 'Faltan campos: waiting_list_id, fecha, hora' });
+  const { waiting_list_id, fecha, hora, nombre: bodyNombre, telefono: bodyTelefono } = req.body;
+  if (!fecha || !hora)
+    return res.status(400).json({ error: 'Faltan campos: fecha, hora' });
+
+  // Validación de horario pasado — zona CDMX
+  const horaPrefix = String(hora).slice(0, 5);
+  const nowMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const [fY, fM, fD] = fecha.split('-').map(Number);
+  const [hH, hMin] = horaPrefix.split(':').map(Number);
+  const slotDt = new Date(fY, fM - 1, fD, hH, hMin, 0);
+  if (slotDt <= nowMx) {
+    return res.status(400).json({ error: 'No puedes ofrecer un horario que ya pasó.' });
+  }
 
   try {
-    const r = await pool.query(
-      `SELECT w.nombre, w.telefono, d.bot_slug
-       FROM waiting_list w
-       JOIN doctors d ON w.doctor_id = d.id
-       WHERE w.id=$1 AND w.doctor_id=$2`,
-      [waiting_list_id, req.user.id]
-    );
-    if (!r.rows.length) return res.status(404).json({ error: 'Paciente no encontrado en tu lista' });
+    let nombre, telefono, bot_slug;
 
-    // Normaliza a "HH:MM" para comparación segura contra columna TIME de Postgres
-    const horaPrefix = String(hora).slice(0, 5);
+    if (waiting_list_id) {
+      // Flujo original — paciente en lista de espera
+      const r = await pool.query(
+        `SELECT w.nombre, w.telefono, d.bot_slug
+         FROM waiting_list w
+         JOIN doctors d ON w.doctor_id = d.id
+         WHERE w.id=$1 AND w.doctor_id=$2`,
+        [waiting_list_id, req.user.id]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: 'Paciente no encontrado en tu lista' });
+      ({ nombre, telefono, bot_slug } = r.rows[0]);
+    } else {
+      // Flujo re-oferta — desde cita rechazada (sin waiting_list_id)
+      if (!bodyNombre || !bodyTelefono)
+        return res.status(400).json({ error: 'Faltan campos: nombre, telefono o waiting_list_id' });
+      const drRes = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+      if (!drRes.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+      nombre   = bodyNombre;
+      telefono = bodyTelefono;
+      bot_slug = drRes.rows[0].bot_slug;
+    }
 
     const [slotAppt, slotBlqHora, slotBlqDia] = await Promise.all([
       pool.query(
@@ -750,7 +772,6 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
     if (slotAppt.rows.length || slotBlqHora.rows.length || slotBlqDia.rows.length)
       return res.status(400).json({ error: 'El horario seleccionado ya no está disponible o se encuentra bloqueado.' });
 
-    const { nombre, telefono, bot_slug } = r.rows[0];
     const fechaFmt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-MX', {
       weekday: 'long', day: 'numeric', month: 'long'
     });
@@ -767,7 +788,9 @@ app.post('/api/waiting-list/offer', auth, h(async (req, res) => {
     const raw = await resp.text();
     if (!resp.ok) throw new Error(`Bot Factory: ${raw.substring(0, 200)}`);
 
-    await pool.query('DELETE FROM waiting_list WHERE id=$1', [waiting_list_id]);
+    if (waiting_list_id) {
+      await pool.query('DELETE FROM waiting_list WHERE id=$1', [waiting_list_id]);
+    }
     console.log(`[offer] ✅ Espacio ofrecido a ${nombre} (${telefono}) → ${fecha} ${horaFmt}`);
     res.json({ ok: true });
 
