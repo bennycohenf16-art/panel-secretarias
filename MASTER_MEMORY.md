@@ -327,6 +327,24 @@ app.use(express.json())   // ← después
 
 ---
 
+### Sprint 2026-06-09 (parche 5) — Blindaje SÍ branch + sanitización de hora
+
+**Problema 1 — bot SÍ branch**: si `doctorId` closure y `state.doctor_id` eran ambos null, el bloque SÍ ejecutaba `SKIP insert` silenciosamente pero el paciente recibía "¡cita agendada!" (respuesta falsa). El bloque NO ya tenía el `fresh SELECT id FROM doctors WHERE bot_slug`, el SÍ no.
+
+**Problema 2 — hora con sufijo**: aunque el frontend enviaba `hora.slice(0,5)` limpio, si por cualquier causa el valor en `state.oferta.hora` llegaba con sufijo (ej: "09:00 hrs"), el INSERT fallaba con error de tipo TIME en Postgres.
+
+**Fixes — bot-factory `bot-engine.js` — ESPERANDO_OFERTA bloque SÍ:**
+- `const effectiveDIdSi` → `let effectiveDIdSi`.
+- Si `effectiveDIdSi` es null → `SELECT id FROM doctors WHERE bot_slug=$1` como último recurso (igual que el bloque NO).
+- `hora` se sanitiza ANTES del INSERT: `String(horaRaw).replace(/[^0-9:]/g, '').slice(0, 5)`.
+- Log explícito `[oferta-si]` con fuente del doctor_id (closure / state / fresh).
+- `ocupados.includes(hora)` usa la `hora` ya sanitizada.
+
+**Fix — WaitingListPanel.jsx — sendOffer:**
+- `hora: offerHora.replace(/[^0-9:]/g, '').slice(0, 5)` — elimina cualquier carácter no numérico ni `:` antes de cortar a 5 chars.
+
+---
+
 ### Sprint 2026-06-09 (parche 4) — Endpoint dedicado /api/appointments/rejected
 
 **Problema:** la sección de rechazadas no aparecía aunque el commit d047e61 ya estaba desplegado.

@@ -111,7 +111,7 @@ export default function WaitingListPanel({ token }) {
     setOfferMsg('');
     const r = await api('/api/waiting-list/offer', {
       method: 'POST',
-      body: JSON.stringify({ waiting_list_id: offerTarget.id, fecha: offerFecha, hora: offerHora.slice(0, 5) })
+      body: JSON.stringify({ waiting_list_id: offerTarget.id, fecha: offerFecha, hora: offerHora.replace(/[^0-9:]/g, '').slice(0, 5) })
     });
     const data = await r.json();
     if (r.ok) {
