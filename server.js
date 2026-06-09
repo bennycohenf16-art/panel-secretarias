@@ -550,7 +550,7 @@ app.get('/api/appointments/month', auth, h(async (req, res) => {
 }));
 
 app.post('/api/appointments', authOrInternal, h(async (req, res) => {
-  console.log('[INCOMING APPOINTMENT]', req.body);
+  console.log('[BACKEND INCOMING APPOINTMENT]', req.body);
   const { nombre, telefono, fecha, hora, motivo, status: bodyStatus, doctor_id: bodyDoctorId } = req.body;
   const doctorId = req.user?.id ?? bodyDoctorId;
   if (!doctorId) return res.status(400).json({ error: 'doctor_id requerido' });
