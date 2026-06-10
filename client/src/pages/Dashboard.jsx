@@ -194,9 +194,14 @@ function EmptySlot({ onClick }) {
   );
 }
 
-// Devuelve true si el slot (ej. "14:30") ya pasó en CDMX para la fecha dada
-function isPastSlotToday(fecha, slot) {
-  if (!fecha || fecha !== todayISO()) return false;
+// Devuelve true si el slot ya está en el pasado (CDMX).
+// Escenario A: fecha anterior a hoy → todo el día es pasado.
+// Escenario B: fecha === hoy → comparar hora del slot con la hora actual.
+function isPastSlot(fecha, slot) {
+  if (!fecha) return false;
+  const today = todayISO();
+  if (fecha < today) return true;
+  if (fecha > today) return false;
   const cdmxNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
   const [hH, hMin] = slot.split(':').map(Number);
   const slotDt = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate(), hH, hMin, 0);
@@ -247,7 +252,7 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
           const bloqueados = blockedAtSlot(slot);
           const hasContent = citas.length > 0 || bloqueados.length > 0;
           const isHour     = slot.endsWith(':00');
-          const isPast     = isPastSlotToday(fecha, slot);
+          const isPast     = isPastSlot(fecha, slot);
           return (
             <div key={slot} className="flex"
               style={{
@@ -256,7 +261,7 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
                 ...(isPast ? {
                   background: 'repeating-linear-gradient(-45deg,#f9fafb,#f9fafb 5px,#f3f4f6 5px,#f3f4f6 10px)',
                   opacity: 0.55,
-                  pointerEvents: 'none',
+                  ...(!hasContent ? { pointerEvents: 'none' } : {}),
                 } : {})
               }}>
               <div className="flex-none flex items-start justify-end pt-3 pr-3" style={{ width: 72 }}>
