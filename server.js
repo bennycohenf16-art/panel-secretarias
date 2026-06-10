@@ -990,20 +990,45 @@ app.post('/api/admin/run-reminders', auth, h(async (req, res) => {
 }));
 
 // ── Cierre automático de citas pasadas ────────────────────────────────────────
+// La fecha se calcula en Node con zona horaria CDMX — Postgres en Render corre en UTC
+// y no puede usarse CURRENT_DATE directo. El operador es < (estrictamente menor) para
+// que las citas del día en curso no se toquen hasta la medianoche real de CDMX.
+function todayCDMX() {
+  // 'en-CA' produce 'YYYY-MM-DD', independiente del TZ del servidor
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+}
+
 async function runAttendanceCleanup() {
-  const { rowCount } = await pool.query(`
-    UPDATE appointments
-    SET status = 'atendida'
-    WHERE status IN ('pendiente', 'confirmada')
-      AND fecha <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
-  `);
-  console.log(`[CRON Asistencia] ${rowCount} cita(s) marcadas como 'atendida'`);
-  return { updated: rowCount };
+  const hoy = todayCDMX();
+  const { rowCount } = await pool.query(
+    `UPDATE appointments
+     SET status = 'atendida'
+     WHERE status IN ('pendiente', 'confirmada')
+       AND fecha::date < $1::date`,
+    [hoy]
+  );
+  console.log(`[CRON Asistencia] ${rowCount} cita(s) marcadas como 'atendida' (hoy CDMX=${hoy})`);
+  return { updated: rowCount, fechaReferencia: hoy };
 }
 
 app.post('/api/admin/run-attendance-cleanup', auth, h(async (req, res) => {
   const result = await runAttendanceCleanup();
   res.json({ ok: true, ...result });
+}));
+
+// ── Recuperación de emergencia: revierte citas de una fecha de 'atendida' a 'confirmada' ──
+app.post('/api/admin/recover-today-appointments', auth, h(async (req, res) => {
+  const fecha = req.body?.fecha || todayCDMX();
+  const { rowCount, rows } = await pool.query(
+    `UPDATE appointments
+     SET status = 'confirmada'
+     WHERE status = 'atendida'
+       AND fecha::date = $1::date
+     RETURNING id, nombre, telefono, fecha, hora`,
+    [fecha]
+  );
+  console.log(`[RECOVER] ${rowCount} cita(s) revertidas a 'confirmada' para fecha=${fecha}`);
+  res.json({ ok: true, revertidas: rowCount, fecha, citas: rows });
 }));
 
 // ── Estado del bot — puente hacia bot-factory ────────────────────────────────
