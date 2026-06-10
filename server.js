@@ -1188,13 +1188,37 @@ app.get('/api/bot-status', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
   if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
   const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(404).json({ error: 'Este doctor no tiene un bot asignado' });
   const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
   const apiKey  = process.env.INTERNAL_API_KEY || '';
   const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/status`, {
     headers: { 'x-internal-key': apiKey }
   });
-  if (!resp.ok) return res.status(resp.status).json({ error: 'Error al consultar bot-factory' });
+  if (!resp.ok) {
+    console.error(`[bot-status] bot-factory devolvió ${resp.status} para slug=${botSlug}`);
+    return res.status(resp.status).json({ error: 'Error al consultar bot-factory' });
+  }
   res.json(await resp.json());
+}));
+
+// ── Forzar reconexión del bot — limpia sesión y genera nuevo QR ──────────────
+app.post('/api/bot-reconnect', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(404).json({ error: 'Este doctor no tiene un bot asignado' });
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY || '';
+  const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/force-reconnect`, {
+    method: 'POST',
+    headers: { 'x-internal-key': apiKey }
+  });
+  if (!resp.ok) {
+    const errBody = await resp.json().catch(() => ({}));
+    console.error(`[bot-reconnect] bot-factory devolvió ${resp.status}:`, errBody);
+    return res.status(resp.status).json({ error: errBody.error || 'Error al reconectar bot' });
+  }
+  res.json({ ok: true });
 }));
 
 // ── Manejo global de errores ──────────────────────────────────────────────────

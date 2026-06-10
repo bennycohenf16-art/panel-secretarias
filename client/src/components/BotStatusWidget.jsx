@@ -1,43 +1,69 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import API_BASE from '../utils/apiBase';
 
 export default function BotStatusWidget({ token }) {
-  const [status, setStatus] = useState(null); // null = cargando silenciosamente
-  const [qr, setQr]         = useState(null);
-  const [error, setError]   = useState(false);
+  const [status,       setStatus]       = useState(null);
+  const [qr,           setQr]           = useState(null);
+  const [error,        setError]        = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectMsg, setReconnectMsg] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer     = null;
-
-    async function check() {
-      try {
-        const r = await fetch(API_BASE + '/api/bot-status', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (cancelled) return;
-        if (!r.ok) { setError(true); return; }
-        const data = await r.json();
-        setError(false);
-        setStatus(data.status);
-        setQr(data.qr || null);
-        // Reintenta cada 8 s solo mientras está desconectado
-        if (data.status !== 'connected') {
-          timer = setTimeout(check, 8000);
-        }
-      } catch {
-        if (!cancelled) setError(true);
+  const check = useCallback(async (cancelled, timerRef) => {
+    try {
+      const r = await fetch(API_BASE + '/api/bot-status', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (cancelled.current) return;
+      if (!r.ok) { setError(true); return; }
+      const data = await r.json();
+      setError(false);
+      setStatus(data.status);
+      setQr(data.qr || null);
+      if (data.status !== 'connected') {
+        timerRef.current = setTimeout(() => check(cancelled, timerRef), 8000);
       }
+    } catch {
+      if (!cancelled.current) setError(true);
     }
-
-    check();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
   }, [token]);
 
-  // Carga inicial silenciosa — no ocupa espacio
+  useEffect(() => {
+    const cancelled = { current: false };
+    const timerRef  = { current: null };
+    check(cancelled, timerRef);
+    return () => {
+      cancelled.current = true;
+      clearTimeout(timerRef.current);
+    };
+  }, [check]);
+
+  const forceReconnect = async () => {
+    setReconnecting(true);
+    setReconnectMsg('');
+    try {
+      const r = await fetch(API_BASE + '/api/bot-reconnect', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setReconnectMsg(d.error || 'Error al reconectar');
+      } else {
+        setReconnectMsg('Reiniciando… el QR aparecerá en unos segundos.');
+        setQr(null);
+        // Empezar a sondear de inmediato para captar el nuevo QR
+        setTimeout(() => {
+          const cancelled = { current: false };
+          const timerRef  = { current: null };
+          check(cancelled, timerRef);
+        }, 5000);
+      }
+    } catch {
+      setReconnectMsg('Error de conexión');
+    }
+    setReconnecting(false);
+  };
+
   if (status === null && !error) return null;
 
   if (error) return (
@@ -61,7 +87,6 @@ export default function BotStatusWidget({ token }) {
     </div>
   );
 
-  // status === 'disconnected'
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm mb-4"
       style={{ borderTop: '3px solid #ef4444' }}>
@@ -83,8 +108,31 @@ export default function BotStatusWidget({ token }) {
               </div>
             </>
           ) : (
-            <div className="text-xs text-gray-400 mt-0.5">Iniciando conexión, espera unos segundos…</div>
+            <div className="text-xs text-gray-400 mt-0.5 mb-3">
+              Sin sesión activa. Presiona "Forzar reconexión" para generar un código QR.
+            </div>
           )}
+
+          {reconnectMsg && (
+            <div className="text-xs mt-2 px-3 py-2 rounded-lg"
+              style={{ background: reconnectMsg.includes('Error') ? '#fff0f0' : '#f0fdf4', color: reconnectMsg.includes('Error') ? '#c62828' : '#166534' }}>
+              {reconnectMsg}
+            </div>
+          )}
+
+          <button
+            onClick={forceReconnect}
+            disabled={reconnecting}
+            className="mt-3 w-full text-xs font-semibold py-2 px-3 rounded-lg border transition-colors"
+            style={{
+              background: reconnecting ? '#f3f4f6' : '#fef2f2',
+              border: '1.5px solid #fecaca',
+              color: reconnecting ? '#9ca3af' : '#dc2626',
+              cursor: reconnecting ? 'default' : 'pointer'
+            }}
+          >
+            {reconnecting ? 'Reconectando…' : '🔄 Forzar reconexión'}
+          </button>
         </div>
       </div>
     </div>
