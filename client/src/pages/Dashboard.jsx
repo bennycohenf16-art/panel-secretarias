@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API_BASE from '../utils/apiBase';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 import BotStatusWidget from '../components/BotStatusWidget';
@@ -354,7 +355,7 @@ export default function Dashboard() {
 
   // ── API helper ─────────────────────────────────────────────────────────────
   const api = useCallback((url, opts = {}) =>
-    fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
+    fetch(API_BASE + url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
   , [token]);
 
   // ── Carga de configuración de horario ─────────────────────────────────────

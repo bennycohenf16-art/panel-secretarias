@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import API_BASE from '../utils/apiBase';
 
 // Devuelve true si la combinación fecha+hora ya pasó en la zona horaria CDMX
 function isPastSlotCDMX(fecha, hora) {
@@ -40,7 +41,7 @@ export default function CitaModal({ cita, defaults, onClose, onSaved }) {
     if (isEdit || !form.fecha) { setSlots([]); return; }
     setLoadingSlots(true);
     setForm(p => ({ ...p, hora: '' }));
-    fetch(`/api/appointments/available-slots?fecha=${form.fecha}`, {
+    fetch(API_BASE + `/api/appointments/available-slots?fecha=${form.fecha}`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
@@ -70,7 +71,7 @@ export default function CitaModal({ cita, defaults, onClose, onSaved }) {
     }
 
     try {
-      const url = isEdit ? `/api/appointments/${cita.id}` : '/api/appointments';
+      const url = API_BASE + (isEdit ? `/api/appointments/${cita.id}` : '/api/appointments');
       const method = isEdit ? 'PUT' : 'POST';
       const r = await fetch(url, {
         method,

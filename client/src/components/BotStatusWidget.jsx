@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import API_BASE from '../utils/apiBase';
 
 export default function BotStatusWidget({ token }) {
   const [status, setStatus] = useState(null); // null = cargando silenciosamente
@@ -11,7 +12,7 @@ export default function BotStatusWidget({ token }) {
 
     async function check() {
       try {
-        const r = await fetch('/api/bot-status', {
+        const r = await fetch(API_BASE + '/api/bot-status', {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (cancelled) return;

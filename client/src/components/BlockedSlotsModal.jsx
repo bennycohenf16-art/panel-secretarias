@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API_BASE from '../utils/apiBase';
 
 const fi = {
   width: '100%', padding: '10px 12px', borderRadius: 8,
@@ -19,7 +20,7 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   useEffect(() => {
-    fetch('/api/blocked-slots', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/blocked-slots', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => setExisting(Array.isArray(d) ? d : [])).catch(() => {});
   }, [token]);
 
@@ -31,7 +32,7 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
     }
     setForm(p => ({ ...p, hora: '' }));
     setLoadingSlots(true);
-    fetch(`/api/appointments/available-slots?fecha=${form.fecha}`, {
+    fetch(API_BASE + `/api/appointments/available-slots?fecha=${form.fecha}`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
@@ -47,7 +48,7 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
     e.preventDefault();
     setSaving(true); setError('');
     try {
-      const r = await fetch('/api/blocked-slots', {
+      const r = await fetch(API_BASE + '/api/blocked-slots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -67,7 +68,7 @@ export default function BlockedSlotsModal({ onClose, onSaved }) {
   };
 
   const remove = async (id) => {
-    await fetch(`/api/blocked-slots/${id}`, {
+    await fetch(API_BASE + `/api/blocked-slots/${id}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
     });
     setExisting(prev => prev.filter(x => x.id !== id));

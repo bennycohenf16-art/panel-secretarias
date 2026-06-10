@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_BASE from '../utils/apiBase';
 
 export default function ForcePasswordModal({ token, onPasswordChanged }) {
   const [current,  setCurrent]  = useState('');
@@ -19,7 +20,7 @@ export default function ForcePasswordModal({ token, onPasswordChanged }) {
     if (next.length < 6)  { setError('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
     setSaving(true);
     try {
-      const r = await fetch('/api/auth/change-password', {
+      const r = await fetch(API_BASE + '/api/auth/change-password', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ currentPassword: current, newPassword: next })

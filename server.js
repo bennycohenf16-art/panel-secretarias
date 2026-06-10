@@ -124,7 +124,21 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), h(as
 }));
 
 app.use(express.json());
-app.use(cors());
+// CORS: acepta peticiones desde el dev server local y desde la URL de producción
+// del frontend (Vercel). Agregar FRONTEND_URL en las env vars de Render cuando se despliegue.
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:4000',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
+app.use(cors({
+  origin: (origin, cb) => {
+    // Permitir requests sin origin (curl, Postman, mobile) y los orígenes autorizados
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS bloqueado para origin: ${origin}`));
+  },
+  credentials: true,
+}));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tablas PROPIAS de panel-secretarias (coexisten de forma segura con factory_prod):
@@ -1184,8 +1198,10 @@ app.use((err, req, res, _next) => {
 });
 
 // ── Serve React build ─────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'client/dist')));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'client/dist/index.html')));
+// Frontend desacoplado — React se sirve desde Vercel/Netlify, no desde Express.
+// Mantener comentado para referencia histórica:
+// app.use(express.static(path.join(__dirname, 'client/dist')));
+// app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'client/dist/index.html')));
 
 const PORT = process.env.PORT || 4000;
 initDB()

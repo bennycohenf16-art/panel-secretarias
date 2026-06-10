@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API_BASE from '../utils/apiBase';
 
 export default function Login() {
   const nav = useNavigate();
@@ -12,7 +13,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const r = await fetch('/api/auth/login', {
+      const r = await fetch(API_BASE + '/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)

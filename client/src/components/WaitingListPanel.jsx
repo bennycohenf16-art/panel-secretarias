@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import API_BASE from '../utils/apiBase';
 
 // Fecha de hoy en zona CDMX — 'en-CA' produce YYYY-MM-DD sin depender del TZ del browser
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
@@ -43,7 +44,7 @@ export default function WaitingListPanel({ token }) {
   const [loadingRech, setLoadingRech]         = useState(false);
 
   const api = (url, opts = {}) =>
-    fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
+    fetch(API_BASE + url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
 
   const load = async () => {
     setLoading(true);

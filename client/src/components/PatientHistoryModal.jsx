@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import API_BASE from '../utils/apiBase';
 
 const STATUS_COLOR = { pendiente: '#ff9800', confirmada: '#4caf50', cancelada: '#f44336' };
 const STATUS_LABEL = { pendiente: 'Pendiente', confirmada: 'Confirmada', cancelada: 'Cancelada' };
@@ -12,7 +13,7 @@ export default function PatientHistoryModal({ telefono, onClose }) {
   const token = localStorage.getItem('panel_token');
 
   useEffect(() => {
-    fetch(`/api/patients/${telefono}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + `/api/patients/${telefono}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { setCitas(Array.isArray(data) ? data : []); setLoading(false); });
   }, [telefono]);
