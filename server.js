@@ -182,6 +182,7 @@ async function initDB() {
   `);
   await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS fecha_preferida DATE`);
   await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS origen VARCHAR(50) DEFAULT 'manual'`);
+  await pool.query(`ALTER TABLE waiting_list ADD COLUMN IF NOT EXISTS horario_preferencia TEXT`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blocked_slots (
       id         SERIAL PRIMARY KEY,

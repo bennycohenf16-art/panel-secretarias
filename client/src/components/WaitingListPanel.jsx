@@ -265,6 +265,12 @@ export default function WaitingListPanel({ token }) {
                         {p.origen === 'bot' ? '· via bot' : '· manual'} · {fmtDate(p.created_at)}
                       </span>
                     </div>
+                    {p.horario_preferencia && (
+                      <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                        style={{ background: '#f0f9ff', color: '#0369a1' }}>
+                        🕒 {p.horario_preferencia}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-1.5 shrink-0 ml-2">
