@@ -332,8 +332,8 @@ export default function Dashboard() {
   const [loadingPerf, setLoadingPerf]     = useState(false);
   const [fechaDesde, setFechaDesde]       = useState(firstOfMonthISO);
   const [fechaHasta, setFechaHasta]       = useState(todayISO);
-  const [activityLogs, setActivityLogs]   = useState([]);
-  const [loadingActivity, setLoadingActivity] = useState(false);
+  const [pendingAlerts, setPendingAlerts]     = useState([]);
+  const [loadingAlerts, setLoadingAlerts]     = useState(false);
 
   // ── API helper ─────────────────────────────────────────────────────────────
   const api = useCallback((url, opts = {}) =>
@@ -421,16 +421,16 @@ export default function Dashboard() {
     }
   }, [api, fechaDesde, fechaHasta]);
 
-  const loadActivityLogs = useCallback(async () => {
-    setLoadingActivity(true);
+  const loadPendingAlerts = useCallback(async () => {
+    setLoadingAlerts(true);
     try {
-      const r = await api('/api/admin/activity-logs');
+      const r = await api('/api/admin/pending-cleanup');
       const d = await r.json();
-      setActivityLogs(Array.isArray(d) ? d : []);
+      setPendingAlerts(Array.isArray(d) ? d : []);
     } catch {
-      setActivityLogs([]);
+      setPendingAlerts([]);
     } finally {
-      setLoadingActivity(false);
+      setLoadingAlerts(false);
     }
   }, [api]);
 
@@ -439,7 +439,7 @@ export default function Dashboard() {
     api('/api/appointments/month').then(r => r.json()).then(d => setMonthTotal(d.total || 0));
   }, [api]);
   useEffect(() => {
-    if (tab === 'rendimiento') { loadPerformance(); loadActivityLogs(); }
+    if (tab === 'rendimiento') { loadPerformance(); loadPendingAlerts(); }
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Acciones de agenda ─────────────────────────────────────────────────────
@@ -656,125 +656,90 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {/* Bitácora de Actividad Reciente */}
+                {/* Tablero de Alertas Operativas */}
                 <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-5 py-4 flex items-center justify-between"
-                    style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)' }}>
-                    <h2 className="text-white font-bold text-sm">📋 Bitácora de Auditoría — Cambios Manuales</h2>
+                    style={{ background: 'linear-gradient(135deg, #7c2d12 0%, #b91c1c 100%)' }}>
+                    <div>
+                      <h2 className="text-white font-bold text-sm">⚠️ Alertas de Control: Citas del Día sin Procesar</h2>
+                      <p className="text-red-200 text-xs mt-0.5">Citas de hoy cuya hora ya pasó y siguen en Pendiente o Confirmada</p>
+                    </div>
                     <button
-                      onClick={loadActivityLogs}
-                      disabled={loadingActivity}
-                      className="text-white text-xs font-semibold px-3 py-0.5 rounded-full disabled:opacity-50"
+                      onClick={loadPendingAlerts}
+                      disabled={loadingAlerts}
+                      className="text-white text-xs font-semibold px-3 py-0.5 rounded-full disabled:opacity-50 shrink-0"
                       style={{ background: 'rgba(255,255,255,.15)', border: 'none', cursor: 'pointer' }}>
-                      {loadingActivity ? 'Cargando…' : '↺ Actualizar'}
+                      {loadingAlerts ? 'Cargando…' : '↺ Actualizar'}
                     </button>
                   </div>
 
-                  {loadingActivity ? (
-                    <div className="flex items-center justify-center py-12 text-gray-400 text-sm">Cargando bitácora…</div>
-                  ) : activityLogs.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 gap-2">
-                      <span className="text-3xl">📭</span>
-                      <p className="text-gray-400 text-sm">Sin movimientos registrados todavía.</p>
+                  {loadingAlerts ? (
+                    <div className="flex items-center justify-center py-12 text-gray-400 text-sm">Verificando agenda…</div>
+                  ) : pendingAlerts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3">
+                      <span className="text-5xl">✅</span>
+                      <p className="text-gray-700 font-semibold text-sm">¡Felicidades! Agenda al día.</p>
+                      <p className="text-gray-400 text-xs">No hay citas pendientes de cierre. 🎉</p>
                     </div>
                   ) : (
-                    <>
-                      {/* Desktop */}
-                      <div className="hidden sm:block overflow-x-auto">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-gray-50">
-                              {['Fecha y Hora', 'Secretaria', 'Acción', 'Cita #', 'Estado anterior', 'Estado nuevo'].map(h => (
-                                <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">
-                                  {h}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {activityLogs.map((log, i) => {
-                              const meta = log.meta || {};
-                              const isAtendida = log.action === 'manual_override_atendida';
-                              const accionLabel = isAtendida ? 'Marcó como Atendida' : 'Marcó como Ausente';
-                              const accionColor = isAtendida ? '#1d4ed8' : '#4b5563';
-                              const accionBg    = isAtendida ? '#eff6ff' : '#f3f4f6';
-                              const dt = new Date(log.created_at);
-                              const fechaHoraStr = dt.toLocaleString('es-MX', {
-                                timeZone: 'America/Mexico_City',
-                                day: '2-digit', month: '2-digit', year: 'numeric',
-                                hour: '2-digit', minute: '2-digit', hour12: false,
-                              });
-                              return (
-                                <tr key={log.id}
-                                  className={`transition-colors hover:bg-slate-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fechaHoraStr}</td>
-                                  <td className="px-4 py-3">
-                                    <span className="font-semibold text-sm text-gray-800">{meta.user_name || '—'}</span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold"
-                                      style={{ background: accionBg, color: accionColor }}>
-                                      {accionLabel}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-xs font-bold"
-                                      style={{ background: '#f1f5f9', color: '#475569' }}>
-                                      #{log.appointment_id || '—'}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-xs text-gray-500 capitalize">{meta.estado_anterior || '—'}</td>
-                                  <td className="px-4 py-3 text-xs font-semibold capitalize"
-                                    style={{ color: isAtendida ? '#1d4ed8' : '#4b5563' }}>
-                                    {meta.estado_nuevo || '—'}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Mobile cards */}
-                      <div className="block sm:hidden divide-y divide-gray-100">
-                        {activityLogs.map((log) => {
-                          const meta = log.meta || {};
-                          const isAtendida = log.action === 'manual_override_atendida';
-                          const accionLabel = isAtendida ? 'Marcó como Atendida' : 'Marcó como Ausente';
-                          const accionColor = isAtendida ? '#1d4ed8' : '#4b5563';
-                          const accionBg    = isAtendida ? '#eff6ff' : '#f3f4f6';
-                          const dt = new Date(log.created_at);
-                          const fechaHoraStr = dt.toLocaleString('es-MX', {
-                            timeZone: 'America/Mexico_City',
-                            day: '2-digit', month: '2-digit', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit', hour12: false,
-                          });
-                          return (
-                            <div key={log.id} className="p-4">
-                              <div className="flex items-start justify-between gap-2 mb-2">
-                                <div>
-                                  <div className="font-bold text-sm text-gray-800">{meta.user_name || '—'}</div>
-                                  <div className="text-xs text-gray-400 mt-0.5">{fechaHoraStr}</div>
-                                </div>
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0"
-                                  style={{ background: accionBg, color: accionColor }}>
-                                  {accionLabel}
-                                </span>
-                              </div>
-                              <div className="flex gap-3 text-xs text-gray-500">
-                                <span>Cita <strong className="text-gray-700">#{log.appointment_id || '—'}</strong></span>
-                                <span className="capitalize">{meta.estado_anterior || '—'}</span>
-                                <span>→</span>
-                                <span className="font-semibold capitalize"
-                                  style={{ color: isAtendida ? '#1d4ed8' : '#4b5563' }}>
-                                  {meta.estado_nuevo || '—'}
-                                </span>
+                    <div className="divide-y divide-gray-100">
+                      {pendingAlerts.map((cita) => {
+                        const statusLabel = cita.status === 'confirmada' ? 'Confirmada' : 'Pendiente';
+                        const statusBg    = cita.status === 'confirmada' ? '#f0fdf4' : '#fffbeb';
+                        const statusColor = cita.status === 'confirmada' ? '#15803d'  : '#b45309';
+                        return (
+                          <div key={cita.id} className="px-4 py-3 flex items-center gap-3 hover:bg-red-50/40 transition-colors">
+                            {/* Hora */}
+                            <div className="shrink-0 text-center"
+                              style={{ minWidth: 48, background: '#fef2f2', borderRadius: 10, padding: '4px 0' }}>
+                              <div className="text-sm font-extrabold text-red-700">{(cita.hora || '').slice(0,5)}</div>
+                            </div>
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-sm text-gray-800 truncate">{cita.nombre}</div>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                Tel: {fmtPhone(cita.telefono)}
+                                {cita.motivo ? ` · ${cita.motivo}` : ''}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </>
+                            {/* Badge estado */}
+                            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold shrink-0"
+                              style={{ background: statusBg, color: statusColor }}>
+                              {statusLabel}
+                            </span>
+                            {/* Botones de acción rápida */}
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                disabled={updating === cita.id}
+                                title="Marcar como Atendida"
+                                onClick={async () => {
+                                  setUpdating(cita.id);
+                                  await api(`/api/appointments/${cita.id}/status`, { method: 'PATCH', body: JSON.stringify({ status: 'atendida' }) });
+                                  setUpdating(null);
+                                  setPendingAlerts(prev => prev.filter(c => c.id !== cita.id));
+                                }}
+                                className="disabled:opacity-40"
+                                style={{ width:32, height:32, borderRadius:8, background:'#dbeafe', color:'#1d4ed8', border:'none', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                🏥
+                              </button>
+                              <button
+                                disabled={updating === cita.id}
+                                title="Marcar como Ausente"
+                                onClick={async () => {
+                                  setUpdating(cita.id);
+                                  await api(`/api/appointments/${cita.id}/status`, { method: 'PATCH', body: JSON.stringify({ status: 'ausente' }) });
+                                  setUpdating(null);
+                                  setPendingAlerts(prev => prev.filter(c => c.id !== cita.id));
+                                }}
+                                className="disabled:opacity-40"
+                                style={{ width:32, height:32, borderRadius:8, background:'#f3f4f6', color:'#4b5563', border:'none', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                👻
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               </>

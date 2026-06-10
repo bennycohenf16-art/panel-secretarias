@@ -1107,13 +1107,19 @@ app.post('/api/admin/recover-today-appointments', auth, h(async (req, res) => {
   res.json({ ok: true, revertidas: rowCount, fecha, citas: rows });
 }));
 
-// ── Bitácora de actividad — últimos 20 cambios manuales de estado ─────────────
-app.get('/api/admin/activity-logs', auth, h(async (req, res) => {
+// ── Alertas operativas — citas de hoy sin cerrar cuya hora ya pasó ───────────
+app.get('/api/admin/pending-cleanup', auth, h(async (req, res) => {
+  const hoy = todayCDMX();
+  const nowMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const horaActual = `${String(nowMx.getHours()).padStart(2,'0')}:${String(nowMx.getMinutes()).padStart(2,'0')}`;
   const { rows } = await pool.query(
-    `SELECT id, user_id, action, appointment_id, meta, created_at
-     FROM activity_logs
-     ORDER BY created_at DESC
-     LIMIT 20`
+    `SELECT id, nombre, telefono, motivo, hora, status
+     FROM appointments
+     WHERE fecha::date = $1
+       AND hora < $2
+       AND status IN ('pendiente', 'confirmada')
+     ORDER BY hora ASC`,
+    [hoy, horaActual]
   );
   res.json(rows);
 }));
