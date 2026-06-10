@@ -56,9 +56,9 @@ const firstOfMonthISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
 };
 const fmtPhone = (t) => {
-  const d = (t || '').replace(/\D/g, '');
-  if (!d) return '';
-  return `+52 ${d.slice(-10)}`;
+  const d = (t || '').replace(/\D/g, '').slice(-10);
+  if (d.length < 10) return d || '';
+  return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6,10)}`;
 };
 const addDays = (fechaISO, delta) => {
   const [y, m, d] = fechaISO.split('-').map(Number);
@@ -434,11 +434,13 @@ export default function Dashboard() {
   const logout = () => { localStorage.clear(); nav('/login'); };
 
   const today     = todayISO();
-  const pending   = appointments.filter(a => a.status === 'pendiente').length;
-  const confirmed = appointments.filter(a => a.status === 'confirmada').length;
+  // rechazada/reagendada pertenecen al historial de Espera — nunca deben aparecer en la agenda activa
+  const activeAppointments = appointments.filter(a => a.status !== 'rechazada' && a.status !== 'reagendada');
+  const pending   = activeAppointments.filter(a => a.status === 'pendiente').length;
+  const confirmed = activeAppointments.filter(a => a.status === 'confirmada').length;
 
   const statCards = [
-    { label: fecha ? 'Citas del día' : 'Total citas', value: appointments.length, color: '#1a1a2e', bg: '#f0f4ff', icon: '📅' },
+    { label: fecha ? 'Citas del día' : 'Total citas', value: activeAppointments.length, color: '#1a1a2e', bg: '#f0f4ff', icon: '📅' },
     { label: 'Pendientes',  value: pending,    color: '#e65100', bg: '#fff3e0', icon: '⏳' },
     { label: 'Confirmadas', value: confirmed,  color: '#2e7d32', bg: '#e8f5e9', icon: '✅' },
     { label: 'Este mes',    value: monthTotal, color: '#6a1b9a', bg: '#f3e5f5', icon: '📊' },
@@ -449,11 +451,13 @@ export default function Dashboard() {
   // ── Cómputos de rendimiento ────────────────────────────────────────────────
   const perfTotals = perfData.reduce(
     (acc, r) => ({
-      creadas:    acc.creadas    + (r.creadas_manual || 0),
-      confirmadas: acc.confirmadas + (r.confirmadas   || 0),
-      canceladas:  acc.canceladas  + (r.canceladas    || 0),
+      creadas:     acc.creadas     + (r.creadas_manual || 0),
+      confirmadas: acc.confirmadas + (r.confirmadas    || 0),
+      canceladas:  acc.canceladas  + (r.canceladas     || 0),
+      atendidas:   acc.atendidas   + (r.atendidas      || 0),
+      ausentes:    acc.ausentes    + (r.ausentes        || 0),
     }),
-    { creadas: 0, confirmadas: 0, canceladas: 0 }
+    { creadas: 0, confirmadas: 0, canceladas: 0, atendidas: 0, ausentes: 0 }
   );
 
   return (
@@ -593,11 +597,13 @@ export default function Dashboard() {
             ) : (
               <>
                 {/* Tarjetas de resumen global */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                   {[
-                    { label: 'Citas Creadas (manual)', value: perfTotals.creadas,    color: '#4f46e5', bg: '#eef2ff', icon: '✏️' },
-                    { label: 'Total Confirmadas',      value: perfTotals.confirmadas, color: '#15803d', bg: '#f0fdf4', icon: '✅' },
-                    { label: 'Total Canceladas',       value: perfTotals.canceladas,  color: '#dc2626', bg: '#fef2f2', icon: '❌' },
+                    { label: 'Citas Creadas (manual)', value: perfTotals.creadas,     color: '#4f46e5', bg: '#eef2ff', icon: '✏️' },
+                    { label: 'Total Confirmadas',      value: perfTotals.confirmadas,  color: '#15803d', bg: '#f0fdf4', icon: '✅' },
+                    { label: 'Total Canceladas',       value: perfTotals.canceladas,   color: '#dc2626', bg: '#fef2f2', icon: '❌' },
+                    { label: 'Total Atendidas',        value: perfTotals.atendidas,    color: '#1d4ed8', bg: '#eff6ff', icon: '🏥' },
+                    { label: 'Total Ausentes',         value: perfTotals.ausentes,     color: '#4b5563', bg: '#f9fafb', icon: '👻' },
                   ].map(s => (
                     <div key={s.label} className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-4"
                       style={{ borderTop: `3px solid ${s.color}` }}>
@@ -631,7 +637,7 @@ export default function Dashboard() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-50">
-                          {['#', 'Secretaria / Usuario', 'Creadas Manual', 'Confirmadas', 'Canceladas', 'Efectividad'].map(h => (
+                          {['#', 'Secretaria / Usuario', 'Creadas Manual', 'Confirmadas', 'Canceladas', 'Atendidas', 'Ausentes', 'Efectividad'].map(h => (
                             <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">
                               {h}
                             </th>
@@ -641,8 +647,9 @@ export default function Dashboard() {
                       <tbody>
                         {perfData
                           .map(r => {
-                            const total = (r.confirmadas || 0) + (r.canceladas || 0);
-                            const efectividad = total > 0 ? ((r.confirmadas || 0) / total * 100).toFixed(1) : '—';
+                            const positivas = (r.confirmadas || 0) + (r.atendidas || 0);
+                            const total = positivas + (r.canceladas || 0);
+                            const efectividad = total > 0 ? (positivas / total * 100).toFixed(1) : '—';
                             return { ...r, efectividad, total };
                           })
                           .sort((a, b) => b.confirmadas - a.confirmadas)
@@ -676,6 +683,18 @@ export default function Dashboard() {
                                     {r.canceladas || 0}
                                   </span>
                                 </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
+                                    style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+                                    {r.atendidas || 0}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
+                                    style={{ background: '#f9fafb', color: '#4b5563' }}>
+                                    {r.ausentes || 0}
+                                  </span>
+                                </td>
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-2">
                                     <span className="text-sm font-extrabold" style={{ color: efectColor, minWidth: 44 }}>
@@ -699,8 +718,9 @@ export default function Dashboard() {
                   <div className="block sm:hidden divide-y divide-gray-100">
                     {perfData
                       .map(r => {
-                        const total = (r.confirmadas || 0) + (r.canceladas || 0);
-                        const efectividad = total > 0 ? ((r.confirmadas || 0) / total * 100).toFixed(1) : null;
+                        const positivas = (r.confirmadas || 0) + (r.atendidas || 0);
+                        const total = positivas + (r.canceladas || 0);
+                        const efectividad = total > 0 ? (positivas / total * 100).toFixed(1) : null;
                         return { ...r, efectividad };
                       })
                       .sort((a, b) => b.confirmadas - a.confirmadas)
@@ -715,13 +735,15 @@ export default function Dashboard() {
                               <span className="text-xl">{medals[i] || `${i + 1}.`}</span>
                               <span className="font-bold text-gray-800 text-base">{r.secretary_name || 'Sin nombre'}</span>
                             </div>
-                            <div className="grid grid-cols-3 gap-2 mb-3">
+                            <div className="grid grid-cols-5 gap-2 mb-3">
                               {[
-                                { label: 'Creadas', value: r.creadas_manual || 0, bg: '#eef2ff', color: '#4f46e5' },
-                                { label: 'Confirm.', value: r.confirmadas || 0,   bg: '#f0fdf4', color: '#15803d' },
-                                { label: 'Canceladas', value: r.canceladas || 0,  bg: '#fef2f2', color: '#dc2626' },
+                                { label: 'Creadas',    value: r.creadas_manual || 0, bg: '#eef2ff', color: '#4f46e5' },
+                                { label: 'Confirm.',   value: r.confirmadas    || 0, bg: '#f0fdf4', color: '#15803d' },
+                                { label: 'Canceladas', value: r.canceladas     || 0, bg: '#fef2f2', color: '#dc2626' },
+                                { label: 'Atendidas',  value: r.atendidas      || 0, bg: '#eff6ff', color: '#1d4ed8' },
+                                { label: 'Ausentes',   value: r.ausentes       || 0, bg: '#f9fafb', color: '#4b5563' },
                               ].map(m => (
-                                <div key={m.label} className="rounded-xl py-2 px-3 text-center" style={{ background: m.bg }}>
+                                <div key={m.label} className="rounded-xl py-2 px-1 text-center" style={{ background: m.bg }}>
                                   <div className="text-lg font-extrabold" style={{ color: m.color }}>{m.value}</div>
                                   <div className="text-xs font-semibold" style={{ color: m.color }}>{m.label}</div>
                                 </div>
@@ -847,7 +869,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2">
                   <span className="text-white text-xs font-semibold px-3 py-0.5 rounded-full"
                     style={{ background:'rgba(255,255,255,.15)' }}>
-                    {appointments.length} {appointments.length === 1 ? 'cita' : 'citas'}
+                    {activeAppointments.length} {activeAppointments.length === 1 ? 'cita' : 'citas'}
                   </span>
                   <div className="hidden sm:flex items-center gap-3 ml-2">
                     {[['#34d399','Confirmada'],['#fbbf24','Pendiente'],['#f87171','Cancelada'],['#60a5fa','Atendida'],['#9ca3af','Ausente']].map(([c,l]) => (
@@ -861,7 +883,7 @@ export default function Dashboard() {
               </div>
               <TimeGrid
                 fecha={fecha}
-                appointments={appointments}
+                appointments={activeAppointments}
                 blockedSlots={blockedSlots}
                 loading={loading}
                 updating={updating}
@@ -885,7 +907,7 @@ export default function Dashboard() {
                 </h2>
                 <span className="text-white text-xs font-semibold px-3 py-0.5 rounded-full"
                   style={{ background:'rgba(255,255,255,.15)' }}>
-                  {appointments.length} {appointments.length === 1 ? 'cita' : 'citas'}
+                  {activeAppointments.length} {activeAppointments.length === 1 ? 'cita' : 'citas'}
                 </span>
               </div>
 
@@ -893,7 +915,7 @@ export default function Dashboard() {
                 <div className="py-16 text-center text-gray-400">
                   <div className="text-4xl mb-2">⏳</div><p>Cargando citas...</p>
                 </div>
-              ) : appointments.length === 0 ? (
+              ) : activeAppointments.length === 0 ? (
                 <div className="py-16 text-center text-gray-400">
                   <div className="text-5xl mb-3">📭</div>
                   <p className="text-base font-semibold text-gray-500 mb-1">
@@ -905,7 +927,7 @@ export default function Dashboard() {
 
                 {/* Mobile cards */}
                 <div className="block sm:hidden divide-y divide-gray-100">
-                  {appointments.map(c => {
+                  {activeAppointments.map(c => {
                     const st = STATUS[c.status] || STATUS.pendiente;
                     const fechaNormM = c.fecha ? String(c.fecha).split('T')[0] : '';
                     const isPastM    = !!fechaNormM && fechaNormM < today;
@@ -988,7 +1010,7 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {appointments.map((c, i) => {
+                      {activeAppointments.map((c, i) => {
                         const st = STATUS[c.status] || STATUS.pendiente;
                         const fechaNormD = c.fecha ? String(c.fecha).split('T')[0] : '';
                         const isPastD    = !!fechaNormD && fechaNormD < today;

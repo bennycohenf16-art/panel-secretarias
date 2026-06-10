@@ -708,6 +708,10 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
       [req.user.id, `manual_override_${nuevoEstado}`, citaId,
        JSON.stringify({ user_name: req.user.name, estado_anterior: estadoAnterior, estado_nuevo: nuevoEstado })]
     );
+    await pool.query(
+      'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
+      [req.user.id, req.user.name, citaId, nuevoEstado]
+    );
   }
 
   await notificarCambioEstado(citaId, estadoAnterior, nuevoEstado, doctorId);
@@ -900,7 +904,9 @@ app.get('/api/reports/performance', auth, h(async (req, res) => {
        sl.secretary_name,
        COUNT(*) FILTER (WHERE sl.action = 'confirmar')    AS confirmadas,
        COUNT(*) FILTER (WHERE sl.action = 'cancelar')     AS canceladas,
-       COUNT(*) FILTER (WHERE sl.action = 'crear_manual') AS creadas_manual
+       COUNT(*) FILTER (WHERE sl.action = 'crear_manual') AS creadas_manual,
+       COUNT(*) FILTER (WHERE sl.action = 'atendida')     AS atendidas,
+       COUNT(*) FILTER (WHERE sl.action = 'ausente')      AS ausentes
      FROM secretary_logs sl
      JOIN appointments a ON sl.appointment_id = a.id
      WHERE a.doctor_id = $1${dateFilter}
@@ -913,6 +919,8 @@ app.get('/api/reports/performance', auth, h(async (req, res) => {
     confirmadas:     parseInt(r.confirmadas)    || 0,
     canceladas:      parseInt(r.canceladas)     || 0,
     creadas_manual:  parseInt(r.creadas_manual) || 0,
+    atendidas:       parseInt(r.atendidas)      || 0,
+    ausentes:        parseInt(r.ausentes)       || 0,
   })));
 }));
 

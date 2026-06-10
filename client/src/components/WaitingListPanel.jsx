@@ -3,6 +3,15 @@ import React, { useEffect, useState } from 'react';
 // Fecha de hoy en zona CDMX — 'en-CA' produce YYYY-MM-DD sin depender del TZ del browser
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
+const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+// Formatea un número de 10 dígitos como (XX) XXXX-XXXX
+const fmtPhone = (t) => {
+  const d = (t || '').replace(/\D/g, '').slice(-10);
+  if (d.length < 10) return d || '';
+  return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6,10)}`;
+};
+
 function isPastSlotCDMX(fecha, hora) {
   if (!fecha || !hora) return false;
   const cdmxNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
@@ -146,15 +155,22 @@ export default function WaitingListPanel({ token }) {
     setOffering(false);
   };
 
-  const fmtDate = (ts) =>
-    new Date(ts).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+  // Formatea un timestamp ISO a "DD [mes] YYYY" sin depender del TZ del browser
+  const fmtDate = (ts) => {
+    if (!ts) return '—';
+    const iso = String(ts).slice(0, 10);
+    const [y, m, d] = iso.split('-').map(Number);
+    if (!y || !m || !d) return '—';
+    return `${String(d).padStart(2,'0')} ${MESES[m-1]} ${y}`;
+  };
 
+  // Formatea una columna DATE de Postgres a "DD [mes]"
   const fmtFecha = (raw) => {
     if (!raw) return 'Por definir';
     const iso = String(raw).slice(0, 10);
     const [y, m, d] = iso.split('-').map(Number);
     if (!y || !m || !d || isNaN(y + m + d)) return 'Por definir';
-    return new Date(y, m - 1, d, 12).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+    return `${String(d).padStart(2,'0')} ${MESES[m-1]}`;
   };
 
   return (
@@ -226,7 +242,7 @@ export default function WaitingListPanel({ token }) {
                   <div className="min-w-0">
                     <div className="font-bold text-sm text-[#1a1a2e] truncate">{p.nombre}</div>
                     <div className="text-xs text-gray-400 flex flex-wrap gap-x-2">
-                      <span>📞 +{p.telefono}</span>
+                      <span>📞 {fmtPhone(p.telefono)}</span>
                       {p.fecha_preferida && (
                         <span className="text-amber-600 font-semibold">
                           📅 {fmtFecha(p.fecha_preferida)}
@@ -293,7 +309,7 @@ export default function WaitingListPanel({ token }) {
                   <tr key={rec.id} className={`hover:bg-red-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
                     <td className="px-4 py-3 font-bold text-sm text-[#1a1a2e]">{rec.nombre || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {rec.telefono ? `+${String(rec.telefono).replace(/\D/g, '')}` : '—'}
+                      {rec.telefono ? fmtPhone(rec.telefono) : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{fmtFecha(rec.fecha)}</td>
                     <td className="px-4 py-3 text-sm font-bold text-[#1a1a2e] whitespace-nowrap">
