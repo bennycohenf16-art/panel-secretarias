@@ -19,10 +19,17 @@ const STATUS = {
   ausente:    { label: 'Ausente',    icon: '👻', badge: 'bg-gray-100 text-gray-500' },
 };
 
-const TIME_SLOTS = [];
-for (let h = 9; h <= 18; h++) {
-  TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);
-  if (h < 18) TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);
+function generateTimeSlots(start, end, slotMin) {
+  const [sH, sM] = start.split(':').map(Number);
+  const [eH, eM] = end.split(':').map(Number);
+  const slots = [];
+  let cur = sH * 60 + sM;
+  const endMin = eH * 60 + eM;
+  while (cur + slotMin <= endMin) {
+    slots.push(`${String(Math.floor(cur / 60)).padStart(2,'0')}:${String(cur % 60).padStart(2,'0')}`);
+    cur += slotMin;
+  }
+  return slots;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -208,7 +215,7 @@ function isPastSlot(fecha, slot) {
   return slotDt <= cdmxNow;
 }
 
-function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
+function TimeGrid({ slots, fecha, appointments, blockedSlots, loading, updating,
                     changeStatus, setEditing, setConfirmDelete, setHistoryPhone,
                     onNewCita, onDeleteBlocked }) {
   if (loading) return (
@@ -247,7 +254,7 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
         </div>
       )}
       <div style={{ paddingBottom: 8 }}>
-        {TIME_SLOTS.map((slot) => {
+        {slots.map((slot) => {
           const citas      = citasAtSlot(slot);
           const bloqueados = blockedAtSlot(slot);
           const hasContent = citas.length > 0 || bloqueados.length > 0;
@@ -327,6 +334,11 @@ export default function Dashboard() {
   const [vista, setVista]                = useState('calendario');
   const [prefillSlot, setPrefillSlot]    = useState(null);
 
+  // ── Configuración de horario del doctor ───────────────────────────────────
+  const [slotDuration, setSlotDuration]   = useState(30);
+  const [scheduleStart, setScheduleStart] = useState('09:00');
+  const [scheduleEnd, setScheduleEnd]     = useState('18:00');
+
   // ── Rendimiento states ─────────────────────────────────────────────────────
   const [perfData, setPerfData]           = useState([]);
   const [loadingPerf, setLoadingPerf]     = useState(false);
@@ -339,6 +351,15 @@ export default function Dashboard() {
   const api = useCallback((url, opts = {}) =>
     fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) } })
   , [token]);
+
+  // ── Carga de configuración de horario ─────────────────────────────────────
+  useEffect(() => {
+    api('/api/doctor/config').then(r => r.json()).then(d => {
+      if (d.slotDuration)  setSlotDuration(d.slotDuration);
+      if (d.scheduleStart) setScheduleStart(d.scheduleStart);
+      if (d.scheduleEnd)   setScheduleEnd(d.scheduleEnd);
+    }).catch(() => {});
+  }, [api]);
 
   // ── Verificación de suscripción ────────────────────────────────────────────
   const checkSubscription = useCallback(async () => {
@@ -468,7 +489,8 @@ export default function Dashboard() {
 
   const logout = () => { localStorage.clear(); nav('/login'); };
 
-  const today     = todayISO();
+  const today      = todayISO();
+  const timeSlots  = generateTimeSlots(scheduleStart, scheduleEnd, slotDuration);
   // rechazada/reagendada pertenecen al historial de Espera — nunca deben aparecer en la agenda activa
   const activeAppointments = appointments.filter(a => a.status !== 'rechazada' && a.status !== 'reagendada');
   const pending   = activeAppointments.filter(a => a.status === 'pendiente').length;
@@ -859,6 +881,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <TimeGrid
+                slots={timeSlots}
                 fecha={fecha}
                 appointments={activeAppointments}
                 blockedSlots={blockedSlots}

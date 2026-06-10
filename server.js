@@ -1107,6 +1107,33 @@ app.post('/api/admin/recover-today-appointments', auth, h(async (req, res) => {
   res.json({ ok: true, revertidas: rowCount, fecha, citas: rows });
 }));
 
+// ── Configuración de horario del doctor (slotDuration, rango de horas) ────────
+app.get('/api/doctor/config', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  let slotDuration = 30, scheduleStart = '09:00', scheduleEnd = '18:00';
+  if (dr.rows.length) {
+    const botSlug = dr.rows[0].bot_slug;
+    try {
+      const { rows } = await pool.query("SELECT config FROM bots WHERE status='deployed'");
+      for (const row of rows) {
+        const c = JSON.parse(row.config);
+        if (c.panelSlug === botSlug) {
+          slotDuration = c.schedule?.slotDuration || 30;
+          const activeDays = Object.values(c.schedule?.days || {}).filter(d => d.active);
+          if (activeDays.length) {
+            const starts = activeDays.map(d => d.start).filter(Boolean).sort();
+            const ends   = activeDays.map(d => d.end).filter(Boolean).sort();
+            if (starts.length) scheduleStart = starts[0];
+            if (ends.length)   scheduleEnd   = ends[ends.length - 1];
+          }
+          break;
+        }
+      }
+    } catch {}
+  }
+  res.json({ slotDuration, scheduleStart, scheduleEnd });
+}));
+
 // ── Alertas operativas — citas de hoy sin cerrar cuya hora ya pasó ───────────
 app.get('/api/admin/pending-cleanup', auth, h(async (req, res) => {
   const hoy = todayCDMX();
