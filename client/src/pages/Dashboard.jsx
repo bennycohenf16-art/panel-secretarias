@@ -5,6 +5,7 @@ import PatientHistoryModal from '../components/PatientHistoryModal';
 import BotStatusWidget from '../components/BotStatusWidget';
 import WaitingListPanel from '../components/WaitingListPanel';
 import BlockedSlotsModal from '../components/BlockedSlotsModal';
+import ForcePasswordModal from '../components/ForcePasswordModal';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,15 @@ function EmptySlot({ onClick }) {
   );
 }
 
+// Devuelve true si el slot (ej. "14:30") ya pasó en CDMX para la fecha dada
+function isPastSlotToday(fecha, slot) {
+  if (!fecha || fecha !== todayISO()) return false;
+  const cdmxNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const [hH, hMin] = slot.split(':').map(Number);
+  const slotDt = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate(), hH, hMin, 0);
+  return slotDt <= cdmxNow;
+}
+
 function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
                     changeStatus, setEditing, setConfirmDelete, setHistoryPhone,
                     onNewCita, onDeleteBlocked }) {
@@ -222,11 +232,20 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
           const bloqueados = blockedAtSlot(slot);
           const hasContent = citas.length > 0 || bloqueados.length > 0;
           const isHour     = slot.endsWith(':00');
+          const isPast     = isPastSlotToday(fecha, slot);
           return (
             <div key={slot} className="flex"
-              style={{ minHeight: hasContent ? 'auto' : 56, borderBottom: `1px solid ${isHour ? '#f3f4f6' : '#fafafa'}` }}>
+              style={{
+                minHeight: hasContent ? 'auto' : 56,
+                borderBottom: `1px solid ${isHour ? '#f3f4f6' : '#fafafa'}`,
+                ...(isPast ? {
+                  background: 'repeating-linear-gradient(-45deg,#f9fafb,#f9fafb 5px,#f3f4f6 5px,#f3f4f6 10px)',
+                  opacity: 0.55,
+                  pointerEvents: 'none',
+                } : {})
+              }}>
               <div className="flex-none flex items-start justify-end pt-3 pr-3" style={{ width: 72 }}>
-                <span style={{ fontSize: 11, fontWeight: isHour ? 600 : 400, color: isHour ? '#6b7280' : '#d1d5db', fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ fontSize: 11, fontWeight: isHour ? 600 : 400, color: isPast ? '#d1d5db' : (isHour ? '#6b7280' : '#d1d5db'), fontVariantNumeric: 'tabular-nums' }}>
                   {slot}
                 </span>
               </div>
@@ -242,7 +261,7 @@ function TimeGrid({ fecha, appointments, blockedSlots, loading, updating,
                 {bloqueados.map(b => (
                   <BlockedCard key={b.id} bloqueo={b} onDelete={() => onDeleteBlocked(b.id)} />
                 ))}
-                {!hasContent && !isDayBlocked && (
+                {!hasContent && !isDayBlocked && !isPast && (
                   <EmptySlot onClick={() => onNewCita(fecha, slot)} />
                 )}
               </div>
@@ -261,9 +280,11 @@ export default function Dashboard() {
   const name  = localStorage.getItem('panel_name') || 'Doctor';
   const token = localStorage.getItem('panel_token');
 
-  // role se lee del JWT (campo estático). subscription_status se obtiene del backend
-  // porque cambia dinámicamente vía webhooks de Stripe y el JWT quedaría obsoleto.
-  const role = decodeJWT(token)?.role || 'doctor';
+  // role y force_password_change se leen del JWT (campos estáticos).
+  // subscription_status se obtiene del backend porque cambia dinámicamente.
+  const decoded = decodeJWT(token);
+  const role = decoded?.role || 'doctor';
+  const [forcePasswordChange, setForcePasswordChange] = useState(!!decoded?.force_password_change);
 
   // ── Suscripción ────────────────────────────────────────────────────────────
   const [subscriptionStatus, setSubscriptionStatus] = useState(null); // null = verificando
@@ -437,6 +458,14 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-100">
+
+      {/* ── Cambio de contraseña forzado — modal bloqueante ───────────────── */}
+      {forcePasswordChange && (
+        <ForcePasswordModal
+          token={token}
+          onPasswordChanged={() => setForcePasswordChange(false)}
+        />
+      )}
 
       {/* ── Drawer móvil ──────────────────────────────────────────────────── */}
       {drawerOpen && (

@@ -207,6 +207,18 @@ async function initDB() {
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'unpaid'`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP`);
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN DEFAULT FALSE`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id             SERIAL PRIMARY KEY,
+      user_id        INT NOT NULL,
+      action         VARCHAR(100) NOT NULL,
+      appointment_id INT,
+      meta           JSONB,
+      created_at     TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
   console.log('[db] Schema panel-secretarias OK');
 
@@ -215,11 +227,11 @@ async function initDB() {
     const hash = await bcrypt.hash('1234', 10);
     const token = crypto.randomBytes(32).toString('hex');
     await pool.query(
-      `INSERT INTO doctors (name, email, password_hash, bot_slug, panel_token, role)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO doctors (name, email, password_hash, bot_slug, panel_token, role, force_password_change)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
       ['Admin', 'admin@bot.com', hash, 'admin-seed', token, 'admin']
     );
-    console.log('[db] Seed ejecutado → admin@bot.com / 1234');
+    console.log('[db] Seed ejecutado → admin@bot.com / 1234 (force_password_change=true)');
   } else {
     console.log(`[db] Seed omitido — ya existen ${rows[0].total} doctor(es)`);
   }
@@ -328,12 +340,35 @@ app.post('/api/auth/login', h(async (req, res) => {
   const doc = r.rows[0];
   const ok = await bcrypt.compare(password, doc.password_hash);
   if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
+  const forceChange = !!doc.force_password_change;
   const token = jwt.sign(
-    { id: doc.id, name: doc.name, email: doc.email, role: doc.role || 'doctor' },
+    { id: doc.id, name: doc.name, email: doc.email, role: doc.role || 'doctor', force_password_change: forceChange },
     JWT_SECRET,
     { expiresIn: '14d' }
   );
-  res.json({ token, name: doc.name, email: doc.email });
+  res.json({ token, name: doc.name, email: doc.email, force_password_change: forceChange });
+}));
+
+// ── Cambio de contraseña autenticado (auto-servicio) ──────────────────────────
+app.put('/api/auth/change-password', auth, h(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword)
+    return res.status(400).json({ error: 'Se requieren currentPassword y newPassword' });
+  if (newPassword.length < 6)
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' });
+
+  const r = await pool.query('SELECT password_hash FROM doctors WHERE id=$1', [req.user.id]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const ok = await bcrypt.compare(currentPassword, r.rows[0].password_hash);
+  if (!ok) return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  await pool.query(
+    'UPDATE doctors SET password_hash=$1, force_password_change=FALSE WHERE id=$2',
+    [hash, req.user.id]
+  );
+  res.json({ ok: true });
 }));
 
 // ── Webhook: bot envía cita nueva ─────────────────────────────────────────────
@@ -662,6 +697,16 @@ app.patch('/api/appointments/:id/status', auth, h(async (req, res) => {
     await pool.query(
       'INSERT INTO secretary_logs (secretary_id,secretary_name,appointment_id,action) VALUES ($1,$2,$3,$4)',
       [req.user.id, req.user.name, citaId, nuevoEstado === 'confirmada' ? 'confirmar' : 'cancelar']
+    );
+  }
+
+  // Auditoría para overrides manuales de citas pasadas
+  if (req.user && (nuevoEstado === 'atendida' || nuevoEstado === 'ausente')) {
+    await pool.query(
+      `INSERT INTO activity_logs (user_id, action, appointment_id, meta)
+       VALUES ($1, $2, $3, $4)`,
+      [req.user.id, `manual_override_${nuevoEstado}`, citaId,
+       JSON.stringify({ user_name: req.user.name, estado_anterior: estadoAnterior, estado_nuevo: nuevoEstado })]
     );
   }
 
