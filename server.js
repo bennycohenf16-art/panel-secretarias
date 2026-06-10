@@ -495,7 +495,19 @@ app.get('/api/appointments/available-slots', auth, h(async (req, res) => {
       [req.user.id, fecha]
     )
   ]);
-  res.json({ slots, hasActiveAppointments: activeRows.length > 0 });
+
+  // Si la fecha pedida es HOY en CDMX, eliminar slots cuya hora ya pasó
+  let filteredSlots = slots;
+  if (fecha === todayCDMX()) {
+    const nowMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+    filteredSlots = slots.filter(slot => {
+      const [hH, hMin] = slot.split(':').map(Number);
+      const slotDt = new Date(nowMx.getFullYear(), nowMx.getMonth(), nowMx.getDate(), hH, hMin, 0);
+      return slotDt > nowMx;
+    });
+  }
+
+  res.json({ slots: filteredSlots, hasActiveAppointments: activeRows.length > 0 });
 }));
 
 // ── Bloqueos ──────────────────────────────────────────────────────────────────
@@ -571,6 +583,17 @@ app.post('/api/appointments', authOrInternal, h(async (req, res) => {
   const { nombre, telefono, fecha, hora, motivo, status: bodyStatus, doctor_id: bodyDoctorId } = req.body;
   const doctorId = req.user?.id ?? bodyDoctorId;
   if (!doctorId) return res.status(400).json({ error: 'doctor_id requerido' });
+
+  // Candado de hora pasada — solo para bookings manuales desde el panel (req.user)
+  if (req.user && fecha && hora) {
+    const horaPrefix = String(hora).slice(0, 5);
+    const nowMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+    const [fY, fM, fD] = fecha.split('-').map(Number);
+    const [hH, hMin]   = horaPrefix.split(':').map(Number);
+    const slotDt = new Date(fY, fM - 1, fD, hH, hMin, 0);
+    if (slotDt <= nowMx)
+      return res.status(400).json({ error: 'No puedes agendar en una hora que ya pasó.' });
+  }
   const source = req.user ? 'manual' : 'whatsapp';
   const status = (!req.user && bodyStatus) ? bodyStatus : 'pendiente';
   const r = await pool.query(

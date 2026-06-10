@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+// Devuelve true si la combinación fecha+hora ya pasó en la zona horaria CDMX
+function isPastSlotCDMX(fecha, hora) {
+  if (!fecha || !hora) return false;
+  const cdmxNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const todayStr = cdmxNow.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  if (fecha !== todayStr) return false;
+  const [hH, hMin] = hora.slice(0, 5).split(':').map(Number);
+  const slotDt = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate(), hH, hMin, 0);
+  return slotDt <= cdmxNow;
+}
+
 const fi = {
   width: '100%', padding: '10px 12px', borderRadius: 8,
   border: '1.5px solid #ddd', fontSize: 14, outline: 'none', transition: 'border-color .2s'
@@ -51,6 +62,13 @@ export default function CitaModal({ cita, defaults, onClose, onSaved }) {
     e.preventDefault();
     setSaving(true);
     setError('');
+
+    if (isPastSlotCDMX(form.fecha, form.hora)) {
+      setError('No puedes agendar en una hora que ya pasó.');
+      setSaving(false);
+      return;
+    }
+
     try {
       const url = isEdit ? `/api/appointments/${cita.id}` : '/api/appointments';
       const method = isEdit ? 'PUT' : 'POST';

@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
 
-const todayISO = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD sin desfase
+// Fecha de hoy en zona CDMX — 'en-CA' produce YYYY-MM-DD sin depender del TZ del browser
+const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+
+function isPastSlotCDMX(fecha, hora) {
+  if (!fecha || !hora) return false;
+  const cdmxNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  if (fecha !== cdmxNow.toLocaleDateString('en-CA')) return false;
+  const [hH, hMin] = hora.slice(0, 5).split(':').map(Number);
+  const slotDt = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate(), hH, hMin, 0);
+  return slotDt <= cdmxNow;
+}
 
 export default function WaitingListPanel({ token }) {
   const [lista, setLista]           = useState([]);
@@ -56,16 +66,8 @@ export default function WaitingListPanel({ token }) {
     api(`/api/appointments/available-slots?fecha=${offerFecha}`)
       .then(r => r.json())
       .then(data => {
-        let slots = Array.isArray(data.slots) ? data.slots : [];
-        // Filtrar horas pasadas si es hoy
-        if (offerFecha === todayISO()) {
-          const now = new Date();
-          const nowMins = now.getHours() * 60 + now.getMinutes();
-          slots = slots.filter(s => {
-            const [sh, sm] = s.split(':').map(Number);
-            return sh * 60 + sm > nowMins;
-          });
-        }
+        // El backend ya filtra horas pasadas de hoy — recibimos slots limpios
+        const slots = Array.isArray(data.slots) ? data.slots : [];
         setAvailableOffers(slots);
       })
       .catch(() => setAvailableOffers([]))
@@ -118,6 +120,10 @@ export default function WaitingListPanel({ token }) {
 
   const sendOffer = async () => {
     if (!offerFecha || !offerHora) return;
+    if (isPastSlotCDMX(offerFecha, offerHora)) {
+      setOfferMsg('❌ No puedes ofrecer un horario que ya pasó.');
+      return;
+    }
     setOffering(true);
     setOfferMsg('');
 
