@@ -168,6 +168,8 @@ export default function CitaModal({ cita, defaults, onClose, onSaved }) {
                 <option value="pendiente">⏳ Pendiente</option>
                 <option value="confirmada">✅ Confirmada</option>
                 <option value="cancelada">❌ Cancelada</option>
+                <option value="atendida">🏥 Atendida</option>
+                <option value="ausente">👻 Ausente</option>
               </select>
             </div>
           )}

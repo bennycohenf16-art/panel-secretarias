@@ -989,6 +989,23 @@ app.post('/api/admin/run-reminders', auth, h(async (req, res) => {
   res.json({ ok: true, ...result });
 }));
 
+// ── Cierre automático de citas pasadas ────────────────────────────────────────
+async function runAttendanceCleanup() {
+  const { rowCount } = await pool.query(`
+    UPDATE appointments
+    SET status = 'atendida'
+    WHERE status IN ('pendiente', 'confirmada')
+      AND fecha <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mexico_City')::date
+  `);
+  console.log(`[CRON Asistencia] ${rowCount} cita(s) marcadas como 'atendida'`);
+  return { updated: rowCount };
+}
+
+app.post('/api/admin/run-attendance-cleanup', auth, h(async (req, res) => {
+  const result = await runAttendanceCleanup();
+  res.json({ ok: true, ...result });
+}));
+
 // ── Estado del bot — puente hacia bot-factory ────────────────────────────────
 app.get('/api/bot-status', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
@@ -1023,7 +1040,13 @@ initDB()
         console.error('[CRON Recordatorios] Error crítico en la tarea:', err.message)
       );
     }, { timezone: 'America/Mexico_City' });
-
     console.log('[CRON Recordatorios] Tarea programada — 09:00 AM CDMX cada día.');
+
+    cron.schedule('59 23 * * *', () => {
+      runAttendanceCleanup().catch(err =>
+        console.error('[CRON Asistencia] Error crítico:', err.message)
+      );
+    }, { timezone: 'America/Mexico_City' });
+    console.log('[CRON Asistencia] Tarea programada — 23:59 CDMX cada día.');
   })
   .catch(e => { console.error('DB init error:', e.message); process.exit(1); });

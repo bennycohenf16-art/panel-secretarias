@@ -14,6 +14,8 @@ const STATUS = {
   pendiente:  { label: 'Pendiente',  icon: '⏳', badge: 'bg-orange-100 text-orange-700' },
   confirmada: { label: 'Confirmada', icon: '✅', badge: 'bg-green-100 text-green-700' },
   cancelada:  { label: 'Cancelada',  icon: '❌', badge: 'bg-red-100 text-red-700' },
+  atendida:   { label: 'Atendida',   icon: '🏥', badge: 'bg-blue-100 text-blue-700' },
+  ausente:    { label: 'Ausente',    icon: '👻', badge: 'bg-gray-100 text-gray-500' },
 };
 
 const TIME_SLOTS = [];
@@ -69,11 +71,19 @@ const addDays = (fechaISO, delta) => {
 
 // ── Sub-componentes del Time Grid ─────────────────────────────────────────────
 
+const STATUS_COLORS = {
+  confirmada: { accent: '#34d399', bg: '#f0fdf4' },
+  pendiente:  { accent: '#fbbf24', bg: '#fffbeb' },
+  cancelada:  { accent: '#f87171', bg: '#fef2f2' },
+  atendida:   { accent: '#60a5fa', bg: '#eff6ff' },
+  ausente:    { accent: '#9ca3af', bg: '#f9fafb' },
+};
+
 function CitaCard({ cita, updating, changeStatus, onEdit, onDelete, onPhone }) {
-  const isPending   = cita.status === 'pendiente';
-  const isConfirmed = cita.status === 'confirmada';
-  const accentColor = isConfirmed ? '#34d399' : isPending ? '#fbbf24' : '#f87171';
-  const bgColor     = isConfirmed ? '#f0fdf4' : isPending ? '#fffbeb' : '#fef2f2';
+  const { accent: accentColor, bg: bgColor } = STATUS_COLORS[cita.status] || STATUS_COLORS.pendiente;
+  const today     = todayISO();
+  const fechaNorm = cita.fecha ? String(cita.fecha).split('T')[0] : '';
+  const isPast    = !!fechaNorm && fechaNorm < today;
 
   return (
     <div style={{ borderLeft: `4px solid ${accentColor}`, background: bgColor, borderRadius: '0 8px 8px 0' }}
@@ -89,7 +99,25 @@ function CitaCard({ cita, updating, changeStatus, onEdit, onDelete, onPhone }) {
         )}
       </div>
       <div className="flex gap-1 flex-none items-center">
-        {isPending && (
+        {/* Cita pasada: override manual atendida / ausente */}
+        {isPast && cita.status !== 'atendida' && (
+          <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'atendida')}
+            title="Marcar como Atendida"
+            className="disabled:opacity-40"
+            style={{ width:28, height:28, borderRadius:7, background:'#dbeafe', color:'#1d4ed8', border:'none', cursor:'pointer', fontSize:12 }}>
+            🏥
+          </button>
+        )}
+        {isPast && cita.status !== 'ausente' && (
+          <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'ausente')}
+            title="Marcar como Ausente"
+            className="disabled:opacity-40"
+            style={{ width:28, height:28, borderRadius:7, background:'#f3f4f6', color:'#4b5563', border:'none', cursor:'pointer', fontSize:12 }}>
+            👻
+          </button>
+        )}
+        {/* Cita hoy/futura pendiente: confirmar / cancelar */}
+        {!isPast && cita.status === 'pendiente' && (
           <>
             <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'confirmada')}
               title="Confirmar"
@@ -793,7 +821,7 @@ export default function Dashboard() {
                     {appointments.length} {appointments.length === 1 ? 'cita' : 'citas'}
                   </span>
                   <div className="hidden sm:flex items-center gap-3 ml-2">
-                    {[['#34d399','Confirmada'],['#fbbf24','Pendiente'],['#f87171','Cancelada']].map(([c,l]) => (
+                    {[['#34d399','Confirmada'],['#fbbf24','Pendiente'],['#f87171','Cancelada'],['#60a5fa','Atendida'],['#9ca3af','Ausente']].map(([c,l]) => (
                       <div key={l} className="flex items-center gap-1">
                         <div style={{ width:8, height:8, borderRadius:'50%', background:c }} />
                         <span style={{ color:'rgba(255,255,255,.6)', fontSize:11 }}>{l}</span>
@@ -850,6 +878,8 @@ export default function Dashboard() {
                 <div className="block sm:hidden divide-y divide-gray-100">
                   {appointments.map(c => {
                     const st = STATUS[c.status] || STATUS.pendiente;
+                    const fechaNormM = c.fecha ? String(c.fecha).split('T')[0] : '';
+                    const isPastM    = !!fechaNormM && fechaNormM < today;
                     return (
                       <div key={c.id} className="p-4">
                         <div className="flex items-start justify-between mb-2">
@@ -873,7 +903,22 @@ export default function Dashboard() {
                           </button>
                         )}
                         <div className="flex gap-2">
-                          {c.status === 'pendiente' && (
+                          {isPastM ? (
+                            <>
+                              {c.status !== 'atendida' && (
+                                <button disabled={updating === c.id} onClick={() => changeStatus(c.id, 'atendida')}
+                                  className="flex-1 py-2.5 rounded-xl bg-blue-50 text-blue-700 font-bold text-sm border-0 cursor-pointer disabled:opacity-50">
+                                  🏥 Atendida
+                                </button>
+                              )}
+                              {c.status !== 'ausente' && (
+                                <button disabled={updating === c.id} onClick={() => changeStatus(c.id, 'ausente')}
+                                  className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-500 font-bold text-sm border-0 cursor-pointer disabled:opacity-50">
+                                  👻 Ausente
+                                </button>
+                              )}
+                            </>
+                          ) : c.status === 'pendiente' ? (
                             <>
                               <button disabled={updating === c.id} onClick={() => changeStatus(c.id, 'confirmada')}
                                 className="flex-1 py-2.5 rounded-xl bg-green-50 text-green-700 font-bold text-sm border-0 cursor-pointer disabled:opacity-50">
@@ -884,8 +929,9 @@ export default function Dashboard() {
                                 ❌ Cancelar
                               </button>
                             </>
+                          ) : (
+                            <div className="flex-1" />
                           )}
-                          {c.status !== 'pendiente' && <div className="flex-1" />}
                           <button onClick={() => setEditing(c)}
                             className="px-4 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 font-bold text-sm border-0 cursor-pointer">
                             ✏️
@@ -915,6 +961,8 @@ export default function Dashboard() {
                     <tbody>
                       {appointments.map((c, i) => {
                         const st = STATUS[c.status] || STATUS.pendiente;
+                        const fechaNormD = c.fecha ? String(c.fecha).split('T')[0] : '';
+                        const isPastD    = !!fechaNormD && fechaNormD < today;
                         return (
                           <tr key={c.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                             <td className="px-4 py-3 font-bold text-sm text-[#1a1a2e]">{c.nombre}</td>
@@ -943,7 +991,22 @@ export default function Dashboard() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1.5">
-                                {c.status === 'pendiente' && (
+                                {isPastD ? (
+                                  <>
+                                    {c.status !== 'atendida' && (
+                                      <button disabled={updating === c.id} onClick={() => changeStatus(c.id, 'atendida')}
+                                        className="bg-blue-50 text-blue-700 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm disabled:opacity-50">
+                                        🏥
+                                      </button>
+                                    )}
+                                    {c.status !== 'ausente' && (
+                                      <button disabled={updating === c.id} onClick={() => changeStatus(c.id, 'ausente')}
+                                        className="bg-gray-100 text-gray-500 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm disabled:opacity-50">
+                                        👻
+                                      </button>
+                                    )}
+                                  </>
+                                ) : c.status === 'pendiente' ? (
                                   <>
                                     <button disabled={updating === c.id} onClick={() => changeStatus(c.id, 'confirmada')}
                                       className="bg-green-50 text-green-700 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm disabled:opacity-50">
@@ -954,7 +1017,7 @@ export default function Dashboard() {
                                       ❌
                                     </button>
                                   </>
-                                )}
+                                ) : null}
                                 <button onClick={() => setEditing(c)}
                                   className="bg-indigo-50 text-indigo-700 border-0 px-2 py-1.5 rounded-lg cursor-pointer text-sm">
                                   ✏️
