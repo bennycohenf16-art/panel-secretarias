@@ -1107,6 +1107,17 @@ app.post('/api/admin/recover-today-appointments', auth, h(async (req, res) => {
   res.json({ ok: true, revertidas: rowCount, fecha, citas: rows });
 }));
 
+// ── Bitácora de actividad — últimos 20 cambios manuales de estado ─────────────
+app.get('/api/admin/activity-logs', auth, h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, user_id, action, appointment_id, meta, created_at
+     FROM activity_logs
+     ORDER BY created_at DESC
+     LIMIT 20`
+  );
+  res.json(rows);
+}));
+
 // ── Estado del bot — puente hacia bot-factory ────────────────────────────────
 app.get('/api/bot-status', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);

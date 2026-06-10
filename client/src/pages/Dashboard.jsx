@@ -328,10 +328,12 @@ export default function Dashboard() {
   const [prefillSlot, setPrefillSlot]    = useState(null);
 
   // ── Rendimiento states ─────────────────────────────────────────────────────
-  const [perfData, setPerfData]       = useState([]);
-  const [loadingPerf, setLoadingPerf] = useState(false);
-  const [fechaDesde, setFechaDesde]   = useState(firstOfMonthISO);
-  const [fechaHasta, setFechaHasta]   = useState(todayISO);
+  const [perfData, setPerfData]           = useState([]);
+  const [loadingPerf, setLoadingPerf]     = useState(false);
+  const [fechaDesde, setFechaDesde]       = useState(firstOfMonthISO);
+  const [fechaHasta, setFechaHasta]       = useState(todayISO);
+  const [activityLogs, setActivityLogs]   = useState([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
 
   // ── API helper ─────────────────────────────────────────────────────────────
   const api = useCallback((url, opts = {}) =>
@@ -419,12 +421,25 @@ export default function Dashboard() {
     }
   }, [api, fechaDesde, fechaHasta]);
 
+  const loadActivityLogs = useCallback(async () => {
+    setLoadingActivity(true);
+    try {
+      const r = await api('/api/admin/activity-logs');
+      const d = await r.json();
+      setActivityLogs(Array.isArray(d) ? d : []);
+    } catch {
+      setActivityLogs([]);
+    } finally {
+      setLoadingActivity(false);
+    }
+  }, [api]);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     api('/api/appointments/month').then(r => r.json()).then(d => setMonthTotal(d.total || 0));
   }, [api]);
   useEffect(() => {
-    if (tab === 'rendimiento') loadPerformance();
+    if (tab === 'rendimiento') { loadPerformance(); loadActivityLogs(); }
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Acciones de agenda ─────────────────────────────────────────────────────
@@ -641,149 +656,126 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {/* Tabla de posiciones */}
+                {/* Bitácora de Actividad Reciente */}
                 <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-5 py-4 flex items-center justify-between"
-                    style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
-                    <h2 className="text-white font-bold text-sm">🏆 Leaderboard del Equipo</h2>
-                    <span className="text-white text-xs font-semibold px-3 py-0.5 rounded-full"
-                      style={{ background: 'rgba(255,255,255,.15)' }}>
-                      {perfData.length} {perfData.length === 1 ? 'usuario' : 'usuarios'}
-                    </span>
+                    style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)' }}>
+                    <h2 className="text-white font-bold text-sm">📋 Bitácora de Auditoría — Cambios Manuales</h2>
+                    <button
+                      onClick={loadActivityLogs}
+                      disabled={loadingActivity}
+                      className="text-white text-xs font-semibold px-3 py-0.5 rounded-full disabled:opacity-50"
+                      style={{ background: 'rgba(255,255,255,.15)', border: 'none', cursor: 'pointer' }}>
+                      {loadingActivity ? 'Cargando…' : '↺ Actualizar'}
+                    </button>
                   </div>
 
-                  {/* Desktop */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          {['#', 'Secretaria / Usuario', 'Creadas Manual', 'Confirmadas', 'Canceladas', 'Atendidas', 'Ausentes', 'Efectividad'].map(h => (
-                            <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {perfData
-                          .map(r => {
-                            const positivas = (r.confirmadas || 0) + (r.atendidas || 0);
-                            const total = positivas + (r.canceladas || 0);
-                            const efectividad = total > 0 ? (positivas / total * 100).toFixed(1) : '—';
-                            return { ...r, efectividad, total };
-                          })
-                          .sort((a, b) => b.confirmadas - a.confirmadas)
-                          .map((r, i) => {
-                            const medals = ['🥇', '🥈', '🥉'];
-                            const medal  = medals[i] || `${i + 1}`;
-                            const efectPct = r.efectividad !== '—' ? parseFloat(r.efectividad) : 0;
-                            const efectColor = efectPct >= 80 ? '#15803d' : efectPct >= 50 ? '#b45309' : '#dc2626';
-                            return (
-                              <tr key={r.secretary_name || i}
-                                className={`transition-colors hover:bg-indigo-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                                <td className="px-4 py-3 text-base text-center" style={{ width: 48 }}>{medal}</td>
-                                <td className="px-4 py-3">
-                                  <div className="font-bold text-sm text-gray-800">{r.secretary_name || 'Sin nombre'}</div>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
-                                    style={{ background: '#eef2ff', color: '#4f46e5' }}>
-                                    {r.creadas_manual || 0}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
-                                    style={{ background: '#f0fdf4', color: '#15803d' }}>
-                                    {r.confirmadas || 0}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
-                                    style={{ background: '#fef2f2', color: '#dc2626' }}>
-                                    {r.canceladas || 0}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
-                                    style={{ background: '#eff6ff', color: '#1d4ed8' }}>
-                                    {r.atendidas || 0}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-sm font-bold"
-                                    style={{ background: '#f9fafb', color: '#4b5563' }}>
-                                    {r.ausentes || 0}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-extrabold" style={{ color: efectColor, minWidth: 44 }}>
-                                      {r.efectividad !== '—' ? `${r.efectividad}%` : '—'}
-                                    </span>
-                                    {r.efectividad !== '—' && (
-                                      <div className="flex-1 min-w-[64px]">
-                                        <Bar pct={efectPct} color={efectColor} />
-                                      </div>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Mobile cards */}
-                  <div className="block sm:hidden divide-y divide-gray-100">
-                    {perfData
-                      .map(r => {
-                        const positivas = (r.confirmadas || 0) + (r.atendidas || 0);
-                        const total = positivas + (r.canceladas || 0);
-                        const efectividad = total > 0 ? (positivas / total * 100).toFixed(1) : null;
-                        return { ...r, efectividad };
-                      })
-                      .sort((a, b) => b.confirmadas - a.confirmadas)
-                      .map((r, i) => {
-                        const medals = ['🥇', '🥈', '🥉'];
-                        const efectColor = r.efectividad
-                          ? (parseFloat(r.efectividad) >= 80 ? '#15803d' : parseFloat(r.efectividad) >= 50 ? '#b45309' : '#dc2626')
-                          : '#9ca3af';
-                        return (
-                          <div key={r.secretary_name || i} className="p-4">
-                            <div className="flex items-center gap-2 mb-3">
-                              <span className="text-xl">{medals[i] || `${i + 1}.`}</span>
-                              <span className="font-bold text-gray-800 text-base">{r.secretary_name || 'Sin nombre'}</span>
-                            </div>
-                            <div className="grid grid-cols-5 gap-2 mb-3">
-                              {[
-                                { label: 'Creadas',    value: r.creadas_manual || 0, bg: '#eef2ff', color: '#4f46e5' },
-                                { label: 'Confirm.',   value: r.confirmadas    || 0, bg: '#f0fdf4', color: '#15803d' },
-                                { label: 'Canceladas', value: r.canceladas     || 0, bg: '#fef2f2', color: '#dc2626' },
-                                { label: 'Atendidas',  value: r.atendidas      || 0, bg: '#eff6ff', color: '#1d4ed8' },
-                                { label: 'Ausentes',   value: r.ausentes       || 0, bg: '#f9fafb', color: '#4b5563' },
-                              ].map(m => (
-                                <div key={m.label} className="rounded-xl py-2 px-1 text-center" style={{ background: m.bg }}>
-                                  <div className="text-lg font-extrabold" style={{ color: m.color }}>{m.value}</div>
-                                  <div className="text-xs font-semibold" style={{ color: m.color }}>{m.label}</div>
-                                </div>
+                  {loadingActivity ? (
+                    <div className="flex items-center justify-center py-12 text-gray-400 text-sm">Cargando bitácora…</div>
+                  ) : activityLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-2">
+                      <span className="text-3xl">📭</span>
+                      <p className="text-gray-400 text-sm">Sin movimientos registrados todavía.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Desktop */}
+                      <div className="hidden sm:block overflow-x-auto">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50">
+                              {['Fecha y Hora', 'Secretaria', 'Acción', 'Cita #', 'Estado anterior', 'Estado nuevo'].map(h => (
+                                <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">
+                                  {h}
+                                </th>
                               ))}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-gray-500">Efectividad:</span>
-                              <span className="text-sm font-extrabold" style={{ color: efectColor }}>
-                                {r.efectividad ? `${r.efectividad}%` : '—'}
-                              </span>
-                              {r.efectividad && (
-                                <div className="flex-1">
-                                  <Bar pct={parseFloat(r.efectividad)} color={efectColor} />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activityLogs.map((log, i) => {
+                              const meta = log.meta || {};
+                              const isAtendida = log.action === 'manual_override_atendida';
+                              const accionLabel = isAtendida ? 'Marcó como Atendida' : 'Marcó como Ausente';
+                              const accionColor = isAtendida ? '#1d4ed8' : '#4b5563';
+                              const accionBg    = isAtendida ? '#eff6ff' : '#f3f4f6';
+                              const dt = new Date(log.created_at);
+                              const fechaHoraStr = dt.toLocaleString('es-MX', {
+                                timeZone: 'America/Mexico_City',
+                                day: '2-digit', month: '2-digit', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit', hour12: false,
+                              });
+                              return (
+                                <tr key={log.id}
+                                  className={`transition-colors hover:bg-slate-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fechaHoraStr}</td>
+                                  <td className="px-4 py-3">
+                                    <span className="font-semibold text-sm text-gray-800">{meta.user_name || '—'}</span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold"
+                                      style={{ background: accionBg, color: accionColor }}>
+                                      {accionLabel}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-xs font-bold"
+                                      style={{ background: '#f1f5f9', color: '#475569' }}>
+                                      #{log.appointment_id || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-xs text-gray-500 capitalize">{meta.estado_anterior || '—'}</td>
+                                  <td className="px-4 py-3 text-xs font-semibold capitalize"
+                                    style={{ color: isAtendida ? '#1d4ed8' : '#4b5563' }}>
+                                    {meta.estado_nuevo || '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile cards */}
+                      <div className="block sm:hidden divide-y divide-gray-100">
+                        {activityLogs.map((log) => {
+                          const meta = log.meta || {};
+                          const isAtendida = log.action === 'manual_override_atendida';
+                          const accionLabel = isAtendida ? 'Marcó como Atendida' : 'Marcó como Ausente';
+                          const accionColor = isAtendida ? '#1d4ed8' : '#4b5563';
+                          const accionBg    = isAtendida ? '#eff6ff' : '#f3f4f6';
+                          const dt = new Date(log.created_at);
+                          const fechaHoraStr = dt.toLocaleString('es-MX', {
+                            timeZone: 'America/Mexico_City',
+                            day: '2-digit', month: '2-digit', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit', hour12: false,
+                          });
+                          return (
+                            <div key={log.id} className="p-4">
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div>
+                                  <div className="font-bold text-sm text-gray-800">{meta.user_name || '—'}</div>
+                                  <div className="text-xs text-gray-400 mt-0.5">{fechaHoraStr}</div>
                                 </div>
-                              )}
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0"
+                                  style={{ background: accionBg, color: accionColor }}>
+                                  {accionLabel}
+                                </span>
+                              </div>
+                              <div className="flex gap-3 text-xs text-gray-500">
+                                <span>Cita <strong className="text-gray-700">#{log.appointment_id || '—'}</strong></span>
+                                <span className="capitalize">{meta.estado_anterior || '—'}</span>
+                                <span>→</span>
+                                <span className="font-semibold capitalize"
+                                  style={{ color: isAtendida ? '#1d4ed8' : '#4b5563' }}>
+                                  {meta.estado_nuevo || '—'}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               </>
             )}
