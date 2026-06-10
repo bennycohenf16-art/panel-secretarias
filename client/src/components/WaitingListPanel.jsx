@@ -109,8 +109,15 @@ export default function WaitingListPanel({ token }) {
   };
 
   const remove = async (id) => {
+    if (!window.confirm('¿Eliminar este paciente de la lista de espera?')) return;
     await api(`/api/waiting-list/${id}`, { method: 'DELETE' });
     setLista(prev => prev.filter(p => p.id !== id));
+  };
+
+  const removeRechazada = async (id) => {
+    if (!window.confirm('¿Eliminar este registro del historial de rechazadas?')) return;
+    await api(`/api/appointments/${id}`, { method: 'DELETE' });
+    setRechazadas(prev => prev.filter(r => r.id !== id));
   };
 
   // Abrir modal de oferta desde lista de espera
@@ -305,7 +312,7 @@ export default function WaitingListPanel({ token }) {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-50">
-                  {['Paciente', 'Teléfono', 'Fecha rechazada', 'Hora', 'Acción'].map(h => (
+                  {['Paciente', 'Teléfono', 'Fecha rechazada', 'Hora', 'Acciones'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-100 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -322,13 +329,21 @@ export default function WaitingListPanel({ token }) {
                       {rec.hora ? String(rec.hora).slice(0, 5) : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => openOfferFromRechazada(rec)}
-                        title="Ofrecer nuevo horario a este paciente"
-                        className="px-3 py-1.5 rounded-lg border-0 cursor-pointer text-xs font-bold text-white whitespace-nowrap"
-                        style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)' }}>
-                        🔄 Nuevo horario
-                      </button>
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => openOfferFromRechazada(rec)}
+                          title="Ofrecer nuevo horario a este paciente"
+                          className="px-3 py-1.5 rounded-lg border-0 cursor-pointer text-xs font-bold text-white whitespace-nowrap"
+                          style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)' }}>
+                          🔄 Nuevo horario
+                        </button>
+                        <button
+                          onClick={() => removeRechazada(rec.id)}
+                          title="Eliminar registro"
+                          className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-500 border-0 cursor-pointer text-sm font-bold">
+                          🗑
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
