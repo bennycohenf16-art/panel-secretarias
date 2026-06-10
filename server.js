@@ -124,21 +124,27 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), h(as
 }));
 
 app.use(express.json());
-// CORS: acepta peticiones desde el dev server local y desde la URL de producción
-// del frontend (Vercel). Agregar FRONTEND_URL en las env vars de Render cuando se despliegue.
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:4000',
-  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-];
+  process.env.FRONTEND_URL,
+].filter(Boolean).map(url => url.trim().replace(/\/$/, ''));
+
 app.use(cors({
-  origin: (origin, cb) => {
-    // Permitir requests sin origin (curl, Postman, mobile) y los orígenes autorizados
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error(`CORS bloqueado para origin: ${origin}`));
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const cleanOrigin = origin.trim().replace(/\/$/, '');
+    if (allowedOrigins.includes(cleanOrigin)) return callback(null, true);
+    console.log('❌ Origen bloqueado por CORS:', origin);
+    return callback(new Error('No permitido por CORS'), false);
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Pre-flight handler explícito para todas las rutas
+app.options('*', cors());
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tablas PROPIAS de panel-secretarias (coexisten de forma segura con factory_prod):
