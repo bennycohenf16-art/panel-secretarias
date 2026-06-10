@@ -208,6 +208,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'unpaid'`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS horario_semanal JSONB DEFAULT '{}'`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS activity_logs (
@@ -1107,10 +1108,13 @@ app.post('/api/admin/recover-today-appointments', auth, h(async (req, res) => {
   res.json({ ok: true, revertidas: rowCount, fecha, citas: rows });
 }));
 
-// ── Configuración de horario del doctor (slotDuration, rango de horas) ────────
+// ── Configuración de horario del doctor — por día de la semana ───────────────
 app.get('/api/doctor/config', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
-  let slotDuration = 30, scheduleStart = '09:00', scheduleEnd = '18:00';
+  let slotDuration = 30;
+  // horarioSemanal: { lunes: { inicio, fin, activo }, ... }
+  const horarioSemanal = {};
+
   if (dr.rows.length) {
     const botSlug = dr.rows[0].bot_slug;
     try {
@@ -1119,19 +1123,26 @@ app.get('/api/doctor/config', auth, h(async (req, res) => {
         const c = JSON.parse(row.config);
         if (c.panelSlug === botSlug) {
           slotDuration = c.schedule?.slotDuration || 30;
-          const activeDays = Object.values(c.schedule?.days || {}).filter(d => d.active);
-          if (activeDays.length) {
-            const starts = activeDays.map(d => d.start).filter(Boolean).sort();
-            const ends   = activeDays.map(d => d.end).filter(Boolean).sort();
-            if (starts.length) scheduleStart = starts[0];
-            if (ends.length)   scheduleEnd   = ends[ends.length - 1];
+          // Mapear formato bot (active/start/end) → formato panel (activo/inicio/fin)
+          for (const [dia, cfg] of Object.entries(c.schedule?.days || {})) {
+            horarioSemanal[dia] = {
+              inicio: cfg.start  || '09:00',
+              fin:    cfg.end    || '18:00',
+              activo: !!cfg.active,
+            };
           }
+          // Persistir cache en la columna del doctor para consultas futuras offline
+          await pool.query(
+            'UPDATE doctors SET horario_semanal=$1 WHERE id=$2',
+            [JSON.stringify(horarioSemanal), req.user.id]
+          ).catch(() => {});
           break;
         }
       }
     } catch {}
   }
-  res.json({ slotDuration, scheduleStart, scheduleEnd });
+
+  res.json({ slotDuration, horarioSemanal });
 }));
 
 // ── Alertas operativas — citas de hoy sin cerrar cuya hora ya pasó ───────────

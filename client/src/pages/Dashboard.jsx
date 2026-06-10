@@ -9,7 +9,13 @@ import ForcePasswordModal from '../components/ForcePasswordModal';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
-const DOW_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const DOW_NAMES  = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const DIAS_ES    = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+
+function getDiaNombre(fechaISO) {
+  // T12:00:00 evita desfases de timezone al parsear fecha pura
+  return DIAS_ES[new Date(fechaISO + 'T12:00:00').getDay()];
+}
 
 const STATUS = {
   pendiente:  { label: 'Pendiente',  icon: '⏳', badge: 'bg-orange-100 text-orange-700' },
@@ -335,9 +341,8 @@ export default function Dashboard() {
   const [prefillSlot, setPrefillSlot]    = useState(null);
 
   // ── Configuración de horario del doctor ───────────────────────────────────
-  const [slotDuration, setSlotDuration]   = useState(30);
-  const [scheduleStart, setScheduleStart] = useState('09:00');
-  const [scheduleEnd, setScheduleEnd]     = useState('18:00');
+  const [slotDuration, setSlotDuration]     = useState(30);
+  const [horarioSemanal, setHorarioSemanal] = useState({});
 
   // ── Rendimiento states ─────────────────────────────────────────────────────
   const [perfData, setPerfData]           = useState([]);
@@ -355,9 +360,8 @@ export default function Dashboard() {
   // ── Carga de configuración de horario ─────────────────────────────────────
   useEffect(() => {
     api('/api/doctor/config').then(r => r.json()).then(d => {
-      if (d.slotDuration)  setSlotDuration(d.slotDuration);
-      if (d.scheduleStart) setScheduleStart(d.scheduleStart);
-      if (d.scheduleEnd)   setScheduleEnd(d.scheduleEnd);
+      if (d.slotDuration)   setSlotDuration(d.slotDuration);
+      if (d.horarioSemanal) setHorarioSemanal(d.horarioSemanal);
     }).catch(() => {});
   }, [api]);
 
@@ -489,8 +493,11 @@ export default function Dashboard() {
 
   const logout = () => { localStorage.clear(); nav('/login'); };
 
-  const today      = todayISO();
-  const timeSlots  = generateTimeSlots(scheduleStart, scheduleEnd, slotDuration);
+  const today = todayISO();
+  // Extraer horario específico del día seleccionado; fallback 09:00-18:00 si no hay config
+  const diaNombre  = fecha ? getDiaNombre(fecha) : null;
+  const diaConfig  = (diaNombre && horarioSemanal[diaNombre]) || { inicio: '09:00', fin: '18:00' };
+  const timeSlots  = generateTimeSlots(diaConfig.inicio, diaConfig.fin, slotDuration);
   // rechazada/reagendada pertenecen al historial de Espera — nunca deben aparecer en la agenda activa
   const activeAppointments = appointments.filter(a => a.status !== 'rechazada' && a.status !== 'reagendada');
   const pending   = activeAppointments.filter(a => a.status === 'pendiente').length;
