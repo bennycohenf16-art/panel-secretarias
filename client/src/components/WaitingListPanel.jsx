@@ -3,7 +3,11 @@ import React, { useEffect, useState } from 'react';
 // Fecha de hoy en zona CDMX — 'en-CA' produce YYYY-MM-DD sin depender del TZ del browser
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
-const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+// Mapeo directo de número de mes ISO → nombre en español; sin aritmética de índices
+const MONTH_NAME = {
+  '01':'ene','02':'feb','03':'mar','04':'abr','05':'may','06':'jun',
+  '07':'jul','08':'ago','09':'sep','10':'oct','11':'nov','12':'dic',
+};
 
 // Formatea un número de 10 dígitos como (XX) XXXX-XXXX
 const fmtPhone = (t) => {
@@ -155,22 +159,24 @@ export default function WaitingListPanel({ token }) {
     setOffering(false);
   };
 
-  // Formatea un timestamp ISO a "DD [mes] YYYY" sin depender del TZ del browser
+  // Formatea timestamp ISO → "DD mes YYYY"  (sin new Date, sin aritmética de índices)
   const fmtDate = (ts) => {
     if (!ts) return '—';
-    const iso = String(ts).slice(0, 10);
-    const [y, m, d] = iso.split('-').map(Number);
-    if (!y || !m || !d) return '—';
-    return `${String(d).padStart(2,'0')} ${MESES[m-1]} ${y}`;
+    const parts = String(ts).slice(0, 10).split('-');
+    if (parts.length < 3) return '—';
+    const [yyyy, mm, dd] = parts;
+    return `${dd} ${MONTH_NAME[mm] || mm} ${yyyy}`;
   };
 
-  // Formatea una columna DATE de Postgres a "DD [mes]"
+  // Formatea columna DATE de Postgres → "DD mes"  (sin new Date, sin aritmética de índices)
   const fmtFecha = (raw) => {
     if (!raw) return 'Por definir';
-    const iso = String(raw).slice(0, 10);
-    const [y, m, d] = iso.split('-').map(Number);
-    if (!y || !m || !d || isNaN(y + m + d)) return 'Por definir';
-    return `${String(d).padStart(2,'0')} ${MESES[m-1]}`;
+    const parts = String(raw).slice(0, 10).split('-');
+    if (parts.length < 3) return 'Por definir';
+    const [, mm, dd] = parts;
+    const mes = MONTH_NAME[mm];
+    if (!mes) return 'Por definir';
+    return `${dd} ${mes}`;
   };
 
   return (

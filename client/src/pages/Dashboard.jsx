@@ -73,11 +73,13 @@ const addDays = (fechaISO, delta) => {
 // ── Sub-componentes del Time Grid ─────────────────────────────────────────────
 
 const STATUS_COLORS = {
-  confirmada: { accent: '#34d399', bg: '#f0fdf4' },
-  pendiente:  { accent: '#fbbf24', bg: '#fffbeb' },
-  cancelada:  { accent: '#f87171', bg: '#fef2f2' },
-  atendida:   { accent: '#60a5fa', bg: '#eff6ff' },
-  ausente:    { accent: '#9ca3af', bg: '#f9fafb' },
+  confirmada:  { accent: '#34d399', bg: '#f0fdf4' },
+  pendiente:   { accent: '#fbbf24', bg: '#fffbeb' },
+  cancelada:   { accent: '#f87171', bg: '#fef2f2' },
+  atendida:    { accent: '#60a5fa', bg: '#eff6ff' },
+  ausente:     { accent: '#9ca3af', bg: '#f9fafb' },
+  rechazada:   { accent: '#f87171', bg: '#fef2f2' },
+  reagendada:  { accent: '#fbbf24', bg: '#fffbeb' },
 };
 
 function CitaCard({ cita, updating, changeStatus, onEdit, onDelete, onPhone }) {
@@ -100,22 +102,35 @@ function CitaCard({ cita, updating, changeStatus, onEdit, onDelete, onPhone }) {
         )}
       </div>
       <div className="flex gap-1 flex-none items-center">
-        {/* Cita pasada: override manual atendida / ausente */}
-        {isPast && cita.status !== 'atendida' && (
-          <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'atendida')}
-            title="Marcar como Atendida"
-            className="disabled:opacity-40"
-            style={{ width:28, height:28, borderRadius:7, background:'#dbeafe', color:'#1d4ed8', border:'none', cursor:'pointer', fontSize:12 }}>
+        {/* Cita pasada ya cerrada: badge estático que refleja el estado final */}
+        {isPast && cita.status === 'atendida' && (
+          <span title="Atendida"
+            style={{ width:28, height:28, borderRadius:7, background:'#dbeafe', color:'#1d4ed8', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>
             🏥
-          </button>
+          </span>
         )}
-        {isPast && cita.status !== 'ausente' && (
-          <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'ausente')}
-            title="Marcar como Ausente"
-            className="disabled:opacity-40"
-            style={{ width:28, height:28, borderRadius:7, background:'#f3f4f6', color:'#4b5563', border:'none', cursor:'pointer', fontSize:12 }}>
+        {isPast && cita.status === 'ausente' && (
+          <span title="Ausente"
+            style={{ width:28, height:28, borderRadius:7, background:'#f3f4f6', color:'#4b5563', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>
             👻
-          </button>
+          </span>
+        )}
+        {/* Cita pasada aún sin cerrar: botones de acción para asignar estado final */}
+        {isPast && cita.status !== 'atendida' && cita.status !== 'ausente' && (
+          <>
+            <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'atendida')}
+              title="Marcar como Atendida"
+              className="disabled:opacity-40"
+              style={{ width:28, height:28, borderRadius:7, background:'#dbeafe', color:'#1d4ed8', border:'none', cursor:'pointer', fontSize:12 }}>
+              🏥
+            </button>
+            <button disabled={updating === cita.id} onClick={() => changeStatus(cita.id, 'ausente')}
+              title="Marcar como Ausente"
+              className="disabled:opacity-40"
+              style={{ width:28, height:28, borderRadius:7, background:'#f3f4f6', color:'#4b5563', border:'none', cursor:'pointer', fontSize:12 }}>
+              👻
+            </button>
+          </>
         )}
         {/* Cita hoy/futura pendiente: confirmar / cancelar */}
         {!isPast && cita.status === 'pendiente' && (
