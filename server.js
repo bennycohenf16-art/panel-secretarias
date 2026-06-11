@@ -230,6 +230,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN DEFAULT FALSE`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS horario_semanal JSONB DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS token_version INT DEFAULT 1`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS activity_logs (
@@ -259,15 +260,25 @@ async function initDB() {
   }
 }
 
-function auth(req, res, next) {
+async function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'No autorizado' });
+  let decoded;
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
+    decoded = jwt.verify(token, JWT_SECRET);
   } catch {
-    res.status(401).json({ error: 'Sesión expirada' });
+    return res.status(401).json({ error: 'Sesión expirada' });
   }
+  try {
+    const { rows } = await pool.query('SELECT token_version FROM doctors WHERE id=$1', [decoded.id]);
+    if (!rows.length || rows[0].token_version !== (decoded.token_version ?? 1)) {
+      return res.status(401).json({ error: 'Sesión revocada' });
+    }
+  } catch {
+    return res.status(401).json({ error: 'Error de autenticación' });
+  }
+  req.user = decoded;
+  next();
 }
 
 function authOrInternal(req, res, next) {
@@ -364,7 +375,7 @@ app.post('/api/auth/login', h(async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
   const forceChange = !!doc.force_password_change;
   const token = jwt.sign(
-    { id: doc.id, name: doc.name, email: doc.email, role: doc.role || 'doctor', force_password_change: forceChange },
+    { id: doc.id, name: doc.name, email: doc.email, role: doc.role || 'doctor', force_password_change: forceChange, token_version: doc.token_version ?? 1 },
     JWT_SECRET,
     { expiresIn: '14d' }
   );
@@ -387,7 +398,7 @@ app.put('/api/auth/change-password', auth, h(async (req, res) => {
 
   const hash = await bcrypt.hash(newPassword, 10);
   await pool.query(
-    'UPDATE doctors SET password_hash=$1, force_password_change=FALSE WHERE id=$2',
+    'UPDATE doctors SET password_hash=$1, force_password_change=FALSE, token_version = token_version + 1 WHERE id=$2',
     [hash, req.user.id]
   );
   res.json({ ok: true });
