@@ -977,14 +977,14 @@ app.post('/api/billing/checkout', auth, h(async (req, res) => {
       await pool.query('UPDATE doctors SET stripe_customer_id=$1 WHERE id=$2', [customerId, doctorId]);
     }
 
-    const panelUrl = (process.env.PANEL_URL || 'https://panel-secretarias.onrender.com').replace(/\/$/, '');
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
     const session = await stripe.checkout.sessions.create({
       customer:    customerId,
       mode:        'subscription',
       line_items:  [{ price: priceId, quantity: 1 }],
       metadata:    { doctorId: String(doctorId) },
-      success_url: `${panelUrl}/dashboard?payment=success`,
-      cancel_url:  `${panelUrl}/dashboard?payment=cancelled`,
+      success_url: `${frontendUrl}/dashboard?payment=success`,
+      cancel_url:  `${frontendUrl}/dashboard?payment=cancelled`,
     });
 
     console.log(`[STRIPE CHECKOUT] Sesión creada para doctor ${doctorId} → ${session.url}`);
