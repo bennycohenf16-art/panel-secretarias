@@ -1133,6 +1133,7 @@ app.post('/api/admin/recover-today-appointments', auth, h(async (req, res) => {
 app.get('/api/doctor/config', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
   let slotDuration = 30;
+  let instructions = '';
   // horarioSemanal: { lunes: { inicio, fin, activo }, ... }
   const horarioSemanal = {};
 
@@ -1144,6 +1145,7 @@ app.get('/api/doctor/config', auth, h(async (req, res) => {
         const c = JSON.parse(row.config);
         if (c.panelSlug === botSlug) {
           slotDuration = c.schedule?.slotDuration || 30;
+          instructions = c.instructions || '';
           // Mapear formato bot (active/start/end) → formato panel (activo/inicio/fin)
           for (const [dia, cfg] of Object.entries(c.schedule?.days || {})) {
             horarioSemanal[dia] = {
@@ -1163,7 +1165,60 @@ app.get('/api/doctor/config', auth, h(async (req, res) => {
     } catch {}
   }
 
-  res.json({ slotDuration, horarioSemanal });
+  res.json({ slotDuration, horarioSemanal, instructions });
+}));
+
+// ── Actualizar horario del doctor → bot-factory ────────────────────────────
+app.put('/api/doctor/config/schedule', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(400).json({ error: 'Doctor sin bot asignado' });
+
+  const { days, slotDuration } = req.body;
+  // Convertir formato panel { activo, inicio, fin } → formato bot { active, start, end }
+  const botDays = {};
+  for (const [dia, cfg] of Object.entries(days || {})) {
+    botDays[dia] = { active: !!cfg.activo, start: cfg.inicio || '09:00', end: cfg.fin || '18:00' };
+  }
+
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY;
+  const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/config`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+    body:    JSON.stringify({ schedule: { days: botDays, slotDuration: Number(slotDuration) || 30 } }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    return res.status(resp.status).json({ error: err.error || 'Error en bot-factory' });
+  }
+  res.json({ ok: true });
+}));
+
+// ── Actualizar instrucciones del bot → bot-factory ─────────────────────────
+app.put('/api/doctor/config/instructions', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(400).json({ error: 'Doctor sin bot asignado' });
+
+  const { instructions } = req.body;
+
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY;
+  const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/config`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+    body:    JSON.stringify({ instructions: instructions || '' }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    return res.status(resp.status).json({ error: err.error || 'Error en bot-factory' });
+  }
+  res.json({ ok: true });
 }));
 
 // ── Alertas operativas — citas de hoy sin cerrar cuya hora ya pasó ───────────

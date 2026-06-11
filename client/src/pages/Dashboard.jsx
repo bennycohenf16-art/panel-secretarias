@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
@@ -564,6 +564,12 @@ export default function Dashboard() {
                   {label}
                 </button>
               ))}
+              <Link to="/settings"
+                onClick={() => setDrawerOpen(false)}
+                className="w-full py-3 rounded-xl text-sm font-semibold cursor-pointer text-left px-4 no-underline block transition-colors"
+                style={{ background:'rgba(255,255,255,.08)', color:'#cbd5e1' }}>
+                ⚙️ Configuración
+              </Link>
             </div>
             <div className="px-5 pb-2">
               <BotStatusWidget token={token} />
@@ -605,7 +611,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── Tab Bar ───────────────────────────────────────────────────────── */}
-      <div className="px-4 sm:px-6 flex gap-1"
+      <div className="px-4 sm:px-6 flex gap-1 items-end"
         style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
         {[['agenda','📋 Agenda'],['rendimiento','📈 Rendimiento'],['espera','⏳ Espera']].map(([key,label]) => (
           <button key={key} onClick={() => setTab(key)}
@@ -614,6 +620,13 @@ export default function Dashboard() {
             {label}
           </button>
         ))}
+        <Link to="/settings"
+          className="ml-auto px-4 py-2.5 text-sm font-semibold no-underline rounded-t-lg transition-colors"
+          style={{ background:'transparent', color:'rgba(255,255,255,.6)' }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#fff'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,.6)'; }}>
+          ⚙️ Configuración
+        </Link>
       </div>
 
       {/* ── Contenido ─────────────────────────────────────────────────────── */}
