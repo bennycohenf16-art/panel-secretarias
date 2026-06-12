@@ -524,8 +524,25 @@ async function calcAvailableSlots(doctorId, fecha) {
 }
 
 // ── Helper centralizado de notificaciones de cambio de estado ─────────────────
+// Textos planos y rotativos para notificaciones del panel — sin emojis ni markdown
+const NOTIF_CONFIRMACION = [
+  (n, f, h) => `Hola ${n}, tu cita para el ${f} a las ${h} ya está confirmada en nuestra agenda. Te esperamos.`,
+  (n, f, h) => `Buen día ${n}. Tu espacio está reservado para el ${f} a las ${h}. Recuerda llegar unos minutos antes.`,
+  (n, f, h) => `${n}, confirmamos tu consulta para el ${f} a las ${h}. Cualquier duda nos escribes por aquí.`,
+  (n, f, h) => `Hola ${n}, ya quedó agendada tu cita para el ${f} a las ${h}. Te avisamos para que no se te olvide.`,
+  (n, f, h) => `Todo listo ${n}. Tu cita del ${f} a las ${h} está confirmada en el sistema.`,
+];
+
+const NOTIF_CANCELACION = [
+  (n, f, h) => `Hola ${n}, te informamos que tu cita del ${f} a las ${h} ha sido cancelada.`,
+  (n, f, h) => `${n}, el espacio que tenías reservado para el ${f} a las ${h} ha quedado liberado.`,
+  (n, f, h) => `Hola ${n}. Tu cita programada para el ${f} a las ${h} fue cancelada por el consultorio.`,
+  (n, f, h) => `${n}, te avisamos que ya no tienes cita para el ${f}. Escríbenos si quieres reagendar.`,
+  (n, f, h) => `Hola ${n}, la cita del ${f} a las ${h} fue cancelada. Cuando gustes podemos buscar otra fecha.`,
+];
+
 async function notificarCambioEstado(citaId, estadoAnterior, estadoNuevo, doctorId) {
-  const nuevoLimpio   = (estadoNuevo   || '').toLowerCase().trim();
+  const nuevoLimpio    = (estadoNuevo    || '').toLowerCase().trim();
   const anteriorLimpio = (estadoAnterior || '').toLowerCase().trim();
 
   const esCancelacion  = nuevoLimpio === 'cancelada';
@@ -559,12 +576,14 @@ async function notificarCambioEstado(citaId, estadoAnterior, estadoNuevo, doctor
     }
     const horaFmt = String(hora || '').substring(0, 5);
 
-    const text = esCancelacion
-      ? `Hola ${nombre}. Te informamos que tu cita programada para el día *${fechaCitaStr}* a las *${horaFmt} hrs* ha sido *CANCELADA* por el doctor. 🏥\n\nSi deseas reagendar en otro horario, escribe 'hola' en cualquier momento.`
-      : `¡Hola, ${nombre}! 🎉 Tu cita ha sido *CONFIRMADA* para el *${fechaCitaStr}* a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`;
+    // Elegir plantilla aleatoria y calcular delay humano 2–5 min
+    const banco    = esCancelacion ? NOTIF_CANCELACION : NOTIF_CONFIRMACION;
+    const plantilla = banco[Math.floor(Math.random() * banco.length)];
+    const text     = plantilla(nombre, fechaCitaStr, horaFmt);
+    const delayMs  = Math.floor(120000 + Math.random() * 180000); // 2–5 min
 
-    const baseUrl  = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
-    const apiKey   = process.env.INTERNAL_API_KEY || '';
+    const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+    const apiKey  = process.env.INTERNAL_API_KEY || '';
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 8000);
 
@@ -572,22 +591,22 @@ async function notificarCambioEstado(citaId, estadoAnterior, estadoNuevo, doctor
       const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-        body:    JSON.stringify({ botSlug, phone: telefono, text }),
+        body:    JSON.stringify({ botSlug, phone: telefono, text, delayMs }),
         signal:  controller.signal
       });
       clearTimeout(timeoutId);
       if (!resp.ok) {
         const raw = await resp.text();
-        console.error(`[BRIDGE] ❌ Bot respondió ${resp.status}: ${raw.substring(0, 120)}`);
+        console.error(`[BRIDGE] Bot respondio ${resp.status}: ${raw.substring(0, 120)}`);
       } else {
-        console.log(`[BRIDGE] ✅ Notificación enviada | ${nuevoLimpio} → ${nombre} (${telefono})`);
+        console.log(`[BRIDGE] Notificacion programada | ${nuevoLimpio} → ${nombre} | delay ${Math.round(delayMs / 60000)} min`);
       }
     } catch (botError) {
       clearTimeout(timeoutId);
-      console.error('[CRITICAL BRIDGE ERROR] El bot no respondió o falló, pero la base de datos ya se actualizó:', botError.message);
+      console.error('[BRIDGE] El bot no respondio, DB ya actualizada:', botError.message);
     }
   } catch (err) {
-    console.error('[BRIDGE] Error preparando la notificación:', err.message);
+    console.error('[BRIDGE] Error preparando la notificacion:', err.message);
   }
 }
 
