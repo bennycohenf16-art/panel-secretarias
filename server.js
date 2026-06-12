@@ -79,12 +79,12 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), h(as
         if (periodEndUnix) {
           const endsAt = new Date(periodEndUnix * 1000);
           await pool.query(
-            "UPDATE doctors SET subscription_status='active', subscription_ends_at=$1 WHERE stripe_customer_id=$2",
+            "UPDATE doctors SET subscription_status='active', subscription_ends_at=$1, grace_period_until=NULL WHERE stripe_customer_id=$2",
             [endsAt, customerId]
           );
         } else {
           await pool.query(
-            "UPDATE doctors SET subscription_status='active' WHERE stripe_customer_id=$1",
+            "UPDATE doctors SET subscription_status='active', grace_period_until=NULL WHERE stripe_customer_id=$1",
             [customerId]
           );
         }
@@ -104,11 +104,25 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), h(as
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
+        const gracePeriodUntil = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
         await pool.query(
-          "UPDATE doctors SET subscription_status='past_due' WHERE stripe_customer_id=$1",
-          [invoice.customer]
+          "UPDATE doctors SET subscription_status='past_due', grace_period_until=$1 WHERE stripe_customer_id=$2",
+          [gracePeriodUntil, invoice.customer]
         );
-        console.log(`[STRIPE WEBHOOK] ❌ Pago fallido — customer ${invoice.customer}`);
+        console.log(`[STRIPE WEBHOOK] ❌ Pago fallido — customer ${invoice.customer} — gracia hasta ${gracePeriodUntil.toISOString()}`);
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const sub = event.data.object;
+        if (sub.status === 'past_due') {
+          const gracePeriodUntil = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
+          await pool.query(
+            "UPDATE doctors SET subscription_status='past_due', grace_period_until=$1 WHERE stripe_customer_id=$2",
+            [gracePeriodUntil, sub.customer]
+          );
+          console.log(`[STRIPE WEBHOOK] ⚠️ Suscripción past_due — customer ${sub.customer} — gracia hasta ${gracePeriodUntil.toISOString()}`);
+        }
         break;
       }
 
@@ -227,7 +241,9 @@ async function initDB() {
   // Migraciones de facturación Stripe
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'unpaid'`);
+  await pool.query(`ALTER TABLE doctors ALTER COLUMN subscription_status SET DEFAULT 'active'`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP`);
+  await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS grace_period_until TIMESTAMP DEFAULT NULL`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN DEFAULT FALSE`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS horario_semanal JSONB DEFAULT '{}'`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS token_version INT DEFAULT 1`);
@@ -270,15 +286,31 @@ async function auth(req, res, next) {
     return res.status(401).json({ error: 'Sesión expirada' });
   }
   try {
-    const { rows } = await pool.query('SELECT token_version FROM doctors WHERE id=$1', [decoded.id]);
+    const { rows } = await pool.query('SELECT token_version, subscription_status FROM doctors WHERE id=$1', [decoded.id]);
     if (!rows.length || rows[0].token_version !== (decoded.token_version ?? 1)) {
       return res.status(401).json({ error: 'Sesión revocada' });
+    }
+    if (rows[0].subscription_status === 'blocked' && decoded.role !== 'admin') {
+      return res.status(403).json({ error: 'Cuenta suspendida por falta de pago' });
     }
   } catch {
     return res.status(401).json({ error: 'Error de autenticación' });
   }
   req.user = decoded;
   next();
+}
+
+// Variante para rutas de facturación: valida JWT pero no bloquea cuentas 'blocked'
+// para que el doctor pueda llegar al checkout y reactivar su suscripción.
+async function authBilling(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Sesión expirada' });
+  }
 }
 
 function authOrInternal(req, res, next) {
@@ -379,7 +411,14 @@ app.post('/api/auth/login', h(async (req, res) => {
     JWT_SECRET,
     { expiresIn: '14d' }
   );
-  res.json({ token, name: doc.name, email: doc.email, force_password_change: forceChange });
+  res.json({
+    token,
+    name: doc.name,
+    email: doc.email,
+    force_password_change: forceChange,
+    subscription_status:  doc.subscription_status  || 'active',
+    grace_period_until:   doc.grace_period_until   || null,
+  });
 }));
 
 // ── Cambio de contraseña autenticado (auto-servicio) ──────────────────────────
@@ -958,7 +997,7 @@ app.get('/api/reports/performance', auth, h(async (req, res) => {
 }));
 
 // ── Facturación Stripe ────────────────────────────────────────────────────────
-app.post('/api/billing/checkout', auth, h(async (req, res) => {
+app.post('/api/billing/checkout', authBilling, h(async (req, res) => {
   if (!stripe) return res.status(500).json({ error: 'Stripe no configurado en este entorno' });
 
   const priceId = (process.env.STRIPE_PRICE_ID || '').trim();
@@ -1008,15 +1047,16 @@ app.post('/api/billing/checkout', auth, h(async (req, res) => {
 }));
 
 // ── Estado de suscripción del doctor autenticado ─────────────────────────────
-app.get('/api/billing/status', auth, h(async (req, res) => {
+app.get('/api/billing/status', authBilling, h(async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT subscription_status, subscription_ends_at FROM doctors WHERE id=$1',
+    'SELECT subscription_status, subscription_ends_at, grace_period_until FROM doctors WHERE id=$1',
     [req.user.id]
   );
   if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
   res.json({
-    subscription_status:  rows[0].subscription_status  || 'unpaid',
+    subscription_status:  rows[0].subscription_status  || 'active',
     subscription_ends_at: rows[0].subscription_ends_at || null,
+    grace_period_until:   rows[0].grace_period_until   || null,
   });
 }));
 
@@ -1105,6 +1145,19 @@ app.post('/api/admin/run-reminders', auth, h(async (req, res) => {
 function todayCDMX() {
   // 'en-CA' produce 'YYYY-MM-DD', independiente del TZ del servidor
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+}
+
+async function runGracePeriodCheck() {
+  console.log('[CRON GracePeriod] Verificando periodos de gracia expirados...');
+  const { rowCount } = await pool.query(
+    `UPDATE doctors
+     SET subscription_status = 'blocked', grace_period_until = NULL
+     WHERE subscription_status = 'past_due'
+       AND grace_period_until IS NOT NULL
+       AND grace_period_until < NOW()`
+  );
+  console.log(`[CRON GracePeriod] ${rowCount} doctor(es) bloqueados por periodo de gracia expirado.`);
+  return { bloqueados: rowCount };
 }
 
 async function runAttendanceCleanup() {
@@ -1317,5 +1370,12 @@ initDB()
       );
     }, { timezone: 'America/Mexico_City' });
     console.log('[CRON Asistencia] Tarea programada — 23:59 CDMX cada día.');
+
+    cron.schedule('0 0 * * *', () => {
+      runGracePeriodCheck().catch(err =>
+        console.error('[CRON GracePeriod] Error crítico:', err.message)
+      );
+    }, { timezone: 'America/Mexico_City' });
+    console.log('[CRON GracePeriod] Tarea programada — 00:00 CDMX cada día.');
   })
   .catch(e => { console.error('DB init error:', e.message); process.exit(1); });
