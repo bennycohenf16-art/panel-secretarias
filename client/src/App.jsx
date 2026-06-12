@@ -22,6 +22,16 @@ function AdminRoute({ children }) {
   return role === 'admin' ? children : <Navigate to="/" replace />;
 }
 
+// Ruta raíz: admin → panel de suscripciones; doctor/secretaria → agenda
+function HomeRoute() {
+  const token = localStorage.getItem('panel_token');
+  if (!token) return <Navigate to="/login" replace />;
+  const role = decodeJWT(token)?.role || 'doctor';
+  return role === 'admin'
+    ? <Navigate to="/admin/subscriptions" replace />
+    : <Dashboard />;
+}
+
 // ── Banner preventivo — visible cuando el pago falló pero aún hay periodo de gracia ──
 function GracePeriodBanner() {
   const { subscriptionStatus, gracePeriodUntil } = useAuth();
@@ -155,7 +165,7 @@ export default function App() {
         <AppLayout>
           <Routes>
             <Route path="/login"   element={<Login />} />
-            <Route path="/"        element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+            <Route path="/"        element={<HomeRoute />} />
             <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
             <Route path="/billing" element={<PrivateRoute><Billing /></PrivateRoute>} />
             <Route path="/admin/subscriptions" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
