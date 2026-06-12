@@ -1115,44 +1115,56 @@ async function runReminders() {
 
   const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
   const apiKey  = process.env.INTERNAL_API_KEY || '';
-  let enviados  = 0;
 
-  for (const appt of appts) {
+  const RECORDATORIO_TEXTOS = [
+    (n, h) => `Hola ${n}, te escribo para recordarte que mañana tienes una cita a las ${h}. Por favor confirma tu asistencia.`,
+    (n, h) => `Buen día ${n}. Pasamos a confirmar tu cita de mañana a las ${h}. Si no puedes asistir, avísanos con tiempo.`,
+    (n, h) => `Hola ${n}, solo un recordatorio: tienes cita registrada para mañana a las ${h}. Te esperamos puntual.`,
+    (n, h) => `${n}, te recordamos tu consulta programada para mañana a las ${h}. Cualquier duda nos escribes por aquí.`,
+    (n, h) => `Hola, confirmando tu cita de mañana a las ${h}, ${n}. Si necesitas cancelar o reagendar, con gusto te ayudamos.`,
+  ];
+
+  // Distribuir los envíos de forma escalonada a lo largo de 60 minutos.
+  // Cada recordatorio se dispara de forma no bloqueante — el cron termina de
+  // inmediato y los setTimeout corren en segundo plano.
+  const total        = appts.length;
+  const staggerMs    = total > 1 ? Math.floor(3600000 / total) : 0;
+  let programados    = 0;
+
+  for (let i = 0; i < total; i++) {
+    const appt = appts[i];
     if (!appt.telefono || appt.telefono.trim() === '') {
       console.warn(`[CRON Recordatorios] Skipping id=${appt.id} — teléfono vacío`);
       continue;
     }
-    try {
-      const horaFmt = String(appt.hora).substring(0, 5);
-      const opciones = [
-        `¡Hola, ${appt.nombre}! ⏰ Te recordamos que el día de mañana tienes una cita agendada a las *${horaFmt} hrs*. ¡Te esperamos! 🏥`,
-        `Hola, ${appt.nombre}. 📅 Solo para confirmarte que mañana es tu cita médica a las *${horaFmt} hrs*. Por favor, intenta llegar 5 minutos antes. 🏥`,
-        `¡Buen día, ${appt.nombre}! ✨ Pasamos a recordarte tu cita programada para mañana a las *${horaFmt} hrs*. Si tienes alguna duda, escríbenos por este medio. 👍`,
-        `Estimado/a ${appt.nombre}, 📝 Le recordamos que su cita está confirmada para mañana a las *${horaFmt} hrs*. Agradecemos su puntualidad. Clínica Médica 🏥`,
-      ];
-      const textoFinal = opciones[Math.floor(Math.random() * opciones.length)];
 
-      const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-        body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text: textoFinal })
-      });
-      const raw = await resp.text();
-      if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
+    const fireAt = i * staggerMs;
+    programados++;
 
-      await pool.query('UPDATE appointments SET reminder_sent=TRUE WHERE id=$1', [appt.id]);
-      enviados++;
-      console.log(`[CRON Recordatorios] ✅ id=${appt.id} → ${appt.nombre} (${appt.telefono})`);
-    } catch (err) {
-      console.error(`[CRON Recordatorios] ❌ id=${appt.id} (${appt.nombre}):`, err.message);
-    }
+    setTimeout(async () => {
+      try {
+        const horaFmt    = String(appt.hora).substring(0, 5);
+        const plantilla  = RECORDATORIO_TEXTOS[Math.floor(Math.random() * RECORDATORIO_TEXTOS.length)];
+        const textoFinal = plantilla(appt.nombre, horaFmt);
 
-    const tiempoEspera = Math.floor(Math.random() * 3001) + 3000;
-    await delay(tiempoEspera);
+        const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+          body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text: textoFinal })
+        });
+        const raw = await resp.text();
+        if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
+
+        await pool.query('UPDATE appointments SET reminder_sent=TRUE WHERE id=$1', [appt.id]);
+        console.log(`[CRON Recordatorios] enviado id=${appt.id} → ${appt.nombre} (delay ${Math.round(fireAt/60000)}min)`);
+      } catch (err) {
+        console.error(`[CRON Recordatorios] error id=${appt.id} (${appt.nombre}):`, err.message);
+      }
+    }, fireAt);
   }
 
-  console.log(`[CRON Recordatorios] Enviados ${enviados} de ${appts.length} mensajes para el día de mañana.`);
-  return { enviados, total: appts.length };
+  console.log(`[CRON Recordatorios] ${programados} recordatorios programados — escalonados a lo largo de 60 min.`);
+  return { programados, total };
 }
 
 app.post('/api/admin/run-reminders', auth, h(async (req, res) => {
