@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
+import { useAuth } from '../context/AuthContext';
 
 function StatusBadge({ status, gracePeriodUntil }) {
   if (status === 'active') {
@@ -35,6 +36,7 @@ function StatusBadge({ status, gracePeriodUntil }) {
 
 export default function AdminDashboard() {
   const nav = useNavigate();
+  const { logout } = useAuth();
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(null);
@@ -82,12 +84,20 @@ export default function AdminDashboard() {
           <h1 className="text-xl font-bold text-gray-900">Panel de Administración</h1>
           <p className="text-sm text-gray-500 mt-0.5">Vista de suscripciones en tiempo real</p>
         </div>
-        <button
-          onClick={() => nav('/')}
-          className="text-sm text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border-0"
-        >
-          ← Volver al panel
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => nav('/')}
+            className="text-sm text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border-0"
+          >
+            ← Volver al panel
+          </button>
+          <button
+            onClick={logout}
+            className="text-sm text-red-600 hover:text-red-800 font-medium transition-colors cursor-pointer bg-transparent border-0"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-8">

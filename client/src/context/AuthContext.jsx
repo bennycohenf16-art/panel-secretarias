@@ -12,6 +12,11 @@ export function AuthProvider({ children }) {
     () => localStorage.getItem('panel_grace_until') || null
   );
 
+  const logout = useCallback(() => {
+    localStorage.clear();
+    window.location.href = '/login';
+  }, []);
+
   const refreshSubscription = useCallback(async () => {
     const token = localStorage.getItem('panel_token');
     if (!token) return;
@@ -42,7 +47,7 @@ export function AuthProvider({ children }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <AuthContext.Provider value={{ subscriptionStatus, gracePeriodUntil, refreshSubscription }}>
+    <AuthContext.Provider value={{ subscriptionStatus, gracePeriodUntil, refreshSubscription, logout }}>
       {children}
     </AuthContext.Provider>
   );
