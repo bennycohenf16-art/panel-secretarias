@@ -22,6 +22,8 @@ export default function Login() {
       if (!r.ok) { setError(data.error); setLoading(false); return; }
       localStorage.setItem('panel_token', data.token);
       localStorage.setItem('panel_name', data.name);
+      localStorage.setItem('panel_sub_status', data.subscription_status || 'active');
+      localStorage.setItem('panel_grace_until', data.grace_period_until || '');
       nav('/');
     } catch {
       setError('Error de conexión');
