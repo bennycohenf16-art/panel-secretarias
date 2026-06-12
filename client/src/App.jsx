@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Billing from './pages/Billing';
+import AdminDashboard from './pages/AdminDashboard';
 
 function decodeJWT(t) {
   try { return JSON.parse(atob((t || '').split('.')[1])); } catch { return {}; }
@@ -12,6 +13,13 @@ function decodeJWT(t) {
 
 function PrivateRoute({ children }) {
   return localStorage.getItem('panel_token') ? children : <Navigate to="/login" replace />;
+}
+
+function AdminRoute({ children }) {
+  const token = localStorage.getItem('panel_token');
+  if (!token) return <Navigate to="/login" replace />;
+  const role = decodeJWT(token)?.role || 'doctor';
+  return role === 'admin' ? children : <Navigate to="/" replace />;
 }
 
 // ── Banner preventivo — visible cuando el pago falló pero aún hay periodo de gracia ──
@@ -150,6 +158,7 @@ export default function App() {
             <Route path="/"        element={<PrivateRoute><Dashboard /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
             <Route path="/billing" element={<PrivateRoute><Billing /></PrivateRoute>} />
+            <Route path="/admin/subscriptions" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="*"        element={<Navigate to="/" replace />} />
           </Routes>
         </AppLayout>

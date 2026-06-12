@@ -1074,6 +1074,28 @@ app.get('/api/admin/billing-control', auth, h(async (req, res) => {
   res.json(rows);
 }));
 
+// ── Panel de Administración Maestro — suscripciones en tiempo real ────────────
+app.get('/api/admin/subscriptions', auth, h(async (req, res) => {
+  if (req.user.role !== 'admin')
+    return res.status(403).json({ error: 'Acceso denegado' });
+
+  const { rows } = await pool.query(`
+    SELECT
+      id, name, email, bot_slug,
+      subscription_status, grace_period_until,
+      created_at
+    FROM doctors
+    ORDER BY
+      CASE subscription_status
+        WHEN 'blocked'  THEN 0
+        WHEN 'past_due' THEN 1
+        ELSE 2
+      END,
+      name
+  `);
+  res.json(rows);
+}));
+
 // ── Recordatorios ─────────────────────────────────────────────────────────────
 async function runReminders() {
   console.log('[CRON Recordatorios] Iniciando revisión...');
