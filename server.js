@@ -1144,45 +1144,48 @@ async function runReminders() {
   ];
 
   // Distribuir los envíos de forma escalonada a lo largo de 60 minutos.
-  // Cada recordatorio se dispara de forma no bloqueante — el cron termina de
-  // inmediato y los setTimeout corren en segundo plano.
-  const total        = appts.length;
-  const staggerMs    = total > 1 ? Math.floor(3600000 / total) : 0;
-  let programados    = 0;
+  // El delay de escalonamiento se pasa a bot-factory como 'delayMs', que lo persiste
+  // en Redis vía BullMQ — sobrevive reinicios y deploys en ambos servicios.
+  const total     = appts.length;
+  const staggerMs = total > 1 ? Math.floor(3600000 / total) : 0;
+  let programados = 0;
 
+  const enqueue = async (appt, fireAt) => {
+    try {
+      const horaFmt    = String(appt.hora).substring(0, 5);
+      const plantilla  = RECORDATORIO_TEXTOS[Math.floor(Math.random() * RECORDATORIO_TEXTOS.length)];
+      const textoFinal = plantilla(appt.nombre, horaFmt);
+
+      const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
+        body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text: textoFinal, delayMs: fireAt })
+      });
+      const raw = await resp.text();
+      if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
+
+      // Marcar como enviado una vez que BullMQ confirmó la encola — Redis garantiza la entrega.
+      await pool.query('UPDATE appointments SET reminder_sent=TRUE WHERE id=$1', [appt.id]);
+      console.log(`[CRON Recordatorios] encolado id=${appt.id} → ${appt.nombre} (delay ${Math.round(fireAt/60000)}min en BullMQ)`);
+    } catch (err) {
+      console.error(`[CRON Recordatorios] error id=${appt.id} (${appt.nombre}):`, err.message);
+    }
+  };
+
+  const promesas = [];
   for (let i = 0; i < total; i++) {
     const appt = appts[i];
     if (!appt.telefono || appt.telefono.trim() === '') {
       console.warn(`[CRON Recordatorios] Skipping id=${appt.id} — teléfono vacío`);
       continue;
     }
-
-    const fireAt = i * staggerMs;
     programados++;
-
-    setTimeout(async () => {
-      try {
-        const horaFmt    = String(appt.hora).substring(0, 5);
-        const plantilla  = RECORDATORIO_TEXTOS[Math.floor(Math.random() * RECORDATORIO_TEXTOS.length)];
-        const textoFinal = plantilla(appt.nombre, horaFmt);
-
-        const resp = await fetch(`${baseUrl}/api/messages/send-notification`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', 'x-internal-key': apiKey },
-          body:    JSON.stringify({ botSlug: appt.bot_slug, phone: appt.telefono, text: textoFinal })
-        });
-        const raw = await resp.text();
-        if (!resp.ok) throw new Error(`Status ${resp.status}: ${raw.substring(0, 120)}`);
-
-        await pool.query('UPDATE appointments SET reminder_sent=TRUE WHERE id=$1', [appt.id]);
-        console.log(`[CRON Recordatorios] enviado id=${appt.id} → ${appt.nombre} (delay ${Math.round(fireAt/60000)}min)`);
-      } catch (err) {
-        console.error(`[CRON Recordatorios] error id=${appt.id} (${appt.nombre}):`, err.message);
-      }
-    }, fireAt);
+    promesas.push(enqueue(appt, i * staggerMs));
   }
 
-  console.log(`[CRON Recordatorios] ${programados} recordatorios programados — escalonados a lo largo de 60 min.`);
+  await Promise.allSettled(promesas);
+
+  console.log(`[CRON Recordatorios] ${programados} recordatorios encolados en BullMQ — escalonados a lo largo de 60 min.`);
   return { programados, total };
 }
 
