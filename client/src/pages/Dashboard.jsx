@@ -99,9 +99,7 @@ const STATUS_COLORS = {
 
 function CitaCard({ cita, updating, changeStatus, onEdit, onDelete, onPhone }) {
   const { accent: accentColor, bg: bgColor } = STATUS_COLORS[cita.status] || STATUS_COLORS.pendiente;
-  const today     = todayISO();
-  const fechaNorm = cita.fecha ? String(cita.fecha).split('T')[0] : '';
-  const isPast    = !!fechaNorm && fechaNorm < today;
+  const isPast = isCitaPasada(cita);
 
   return (
     <div style={{ borderLeft: `4px solid ${accentColor}`, background: bgColor, borderRadius: '0 8px 8px 0' }}
@@ -221,6 +219,18 @@ function isPastSlot(fecha, slot) {
   const [hH, hMin] = slot.split(':').map(Number);
   const slotDt = new Date(cdmxNow.getFullYear(), cdmxNow.getMonth(), cdmxNow.getDate(), hH, hMin, 0);
   return slotDt <= cdmxNow;
+}
+
+// Devuelve true si el datetime exacto de la cita (fecha + hora) ya pasó en CDMX.
+// Usa ambos campos para no atenuar citas de hoy que aún no han ocurrido.
+function isCitaPasada(cita) {
+  if (!cita.fecha || !cita.hora) return false;
+  const fechaISO = String(cita.fecha).slice(0, 10);
+  const horaStr  = String(cita.hora).slice(0, 5);
+  const [y, m, d] = fechaISO.split('-').map(Number);
+  const [h, min]  = horaStr.split(':').map(Number);
+  const cdmxNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  return new Date(y, m - 1, d, h, min, 0) <= cdmxNow;
 }
 
 function TimeGrid({ slots, fecha, appointments, blockedSlots, loading, updating,
@@ -909,11 +919,10 @@ export default function Dashboard() {
                 {/* Mobile cards */}
                 <div className="block sm:hidden divide-y divide-gray-100">
                   {activeAppointments.map(c => {
-                    const st = STATUS[c.status] || STATUS.pendiente;
-                    const fechaNormM = c.fecha ? String(c.fecha).split('T')[0] : '';
-                    const isPastM    = !!fechaNormM && fechaNormM < today;
+                    const st      = STATUS[c.status] || STATUS.pendiente;
+                    const isPastM = isCitaPasada(c);
                     return (
-                      <div key={c.id} className="p-4">
+                      <div key={c.id} className={`p-4 ${isPastM ? 'opacity-50 grayscale' : ''}`}>
                         <div className="flex items-start justify-between mb-2">
                           <span className="font-bold text-[#1a1a2e] text-base leading-tight">{c.nombre}</span>
                           <span className={`text-xs font-bold px-2.5 py-1 rounded-full ml-2 shrink-0 ${st.badge}`}>
@@ -992,11 +1001,10 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {activeAppointments.map((c, i) => {
-                        const st = STATUS[c.status] || STATUS.pendiente;
-                        const fechaNormD = c.fecha ? String(c.fecha).split('T')[0] : '';
-                        const isPastD    = !!fechaNormD && fechaNormD < today;
+                        const st      = STATUS[c.status] || STATUS.pendiente;
+                        const isPastD = isCitaPasada(c);
                         return (
-                          <tr key={c.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                          <tr key={c.id} className={`transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${isPastD ? 'opacity-50 grayscale' : 'hover:bg-blue-50'}`}>
                             <td className="px-4 py-3 font-bold text-sm text-[#1a1a2e]">{c.nombre}</td>
                             <td className="px-4 py-3">
                               {c.telefono ? (
