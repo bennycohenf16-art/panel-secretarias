@@ -138,10 +138,12 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), h(as
 }));
 
 app.use(express.json());
+// FRONTEND_URL acepta un valor o varios separados por coma:
+//   ej. "https://agendia-frontend.onrender.com,https://panel-secretarias.onrender.com"
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:4000',
-  process.env.FRONTEND_URL,
+  ...(process.env.FRONTEND_URL || '').split(','),
 ].filter(Boolean).map(url => url.trim().replace(/\/$/, ''));
 
 app.use(cors({
