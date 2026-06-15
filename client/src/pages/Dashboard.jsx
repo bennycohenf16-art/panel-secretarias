@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link, Navigate } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
 import { useAuth } from '../context/AuthContext';
+import logoSvg from '../assets/logo-agendia.svg';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 import BotStatusWidget from '../components/BotStatusWidget';
@@ -519,13 +520,9 @@ export default function Dashboard() {
           <div className="absolute left-0 top-0 bottom-0 w-72 flex flex-col shadow-2xl"
             style={{ background: '#1a1a2e' }}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
-                  style={{ background: 'linear-gradient(135deg, #25d366, #20b858)' }}>🏥</div>
-                <div>
-                  <div className="text-white font-bold text-sm">Dr. {name}</div>
-                  <div className="text-gray-400 text-xs">Panel de Citas</div>
-                </div>
+              <div className="flex flex-col gap-1">
+                <img src={logoSvg} alt="AgendIA Logo" className="h-8 w-auto brightness-0 invert" />
+                <div className="text-gray-400 text-xs pl-0.5">Dr. {name}</div>
               </div>
               <button onClick={() => setDrawerOpen(false)} className="text-gray-400 text-2xl leading-none p-1 bg-transparent border-0 cursor-pointer">✕</button>
             </div>
@@ -564,13 +561,10 @@ export default function Dashboard() {
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="px-4 sm:px-6 h-16 flex items-center justify-between shadow-lg"
         style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
-            style={{ background: 'linear-gradient(135deg, #25d366, #20b858)' }}>🏥</div>
-          <div>
-            <div className="text-white font-bold text-sm">Dr. {name}</div>
-            <div className="text-gray-400 text-xs">Panel de Citas</div>
-          </div>
+        <div className="flex items-center gap-4">
+          <img src={logoSvg} alt="AgendIA Logo" className="h-8 w-auto brightness-0 invert" />
+          <div className="w-px h-6 bg-white/20" />
+          <div className="text-gray-300 text-sm">Dr. {name}</div>
         </div>
         <div className="hidden sm:flex items-center gap-4">
           <span className="text-gray-400 text-sm capitalize">{dateLabel}</span>

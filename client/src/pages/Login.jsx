@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
+import logoSvg from '../assets/logo-agendia.svg';
 
 export default function Login() {
   const nav = useNavigate();
@@ -38,13 +39,8 @@ export default function Login() {
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-8 sm:p-10">
 
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-3xl shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #1a1a2e, #25d366)', boxShadow: '0 8px 24px rgba(37,211,102,.3)' }}>
-            🏥
-          </div>
-          <h1 className="text-2xl font-extrabold text-[#1a1a2e]">Panel Médico</h1>
-          <p className="text-gray-400 text-sm mt-1">Sistema de gestión de citas</p>
+        <div className="flex justify-center mb-8">
+          <img src={logoSvg} alt="AgendIA Logo" className="h-14 w-auto" />
         </div>
 
         {error && (
