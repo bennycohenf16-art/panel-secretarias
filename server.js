@@ -241,7 +241,7 @@ async function initDB() {
   // Migraciones de facturación Stripe
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'unpaid'`);
-  await pool.query(`ALTER TABLE doctors ALTER COLUMN subscription_status SET DEFAULT 'active'`);
+  await pool.query(`ALTER TABLE doctors ALTER COLUMN subscription_status SET DEFAULT 'pendiente'`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMP`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS grace_period_until TIMESTAMP DEFAULT NULL`);
   await pool.query(`ALTER TABLE doctors ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN DEFAULT FALSE`);
@@ -416,7 +416,7 @@ app.post('/api/auth/login', h(async (req, res) => {
     name: doc.name,
     email: doc.email,
     force_password_change: forceChange,
-    subscription_status:  doc.subscription_status  || 'active',
+    subscription_status:  doc.subscription_status  || 'pendiente',
     grace_period_until:   doc.grace_period_until   || null,
   });
 }));
@@ -1073,7 +1073,7 @@ app.get('/api/billing/status', authBilling, h(async (req, res) => {
   );
   if (!rows.length) return res.status(404).json({ error: 'No encontrado' });
   res.json({
-    subscription_status:  rows[0].subscription_status  || 'active',
+    subscription_status:  rows[0].subscription_status  || 'pendiente',
     subscription_ends_at: rows[0].subscription_ends_at || null,
     grace_period_until:   rows[0].grace_period_until   || null,
   });
