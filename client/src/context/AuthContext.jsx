@@ -30,7 +30,7 @@ export function AuthProvider({ children }) {
         return;
       }
       const d = await r.json();
-      const status = d.subscription_status || 'active';
+      const status = d.subscription_status || 'pendiente';
       const grace  = d.grace_period_until  || null;
       setSubscriptionStatus(status);
       setGracePeriodUntil(grace);

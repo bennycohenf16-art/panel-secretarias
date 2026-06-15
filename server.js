@@ -290,8 +290,12 @@ async function auth(req, res, next) {
     if (!rows.length || rows[0].token_version !== (decoded.token_version ?? 1)) {
       return res.status(401).json({ error: 'Sesión revocada' });
     }
-    if (rows[0].subscription_status === 'blocked' && decoded.role !== 'admin') {
-      return res.status(403).json({ error: 'Cuenta suspendida por falta de pago' });
+    const BLOCKED_STATUSES = ['blocked', 'pendiente', 'unpaid'];
+    if (BLOCKED_STATUSES.includes(rows[0].subscription_status) && decoded.role !== 'admin') {
+      const msg = rows[0].subscription_status === 'blocked'
+        ? 'Cuenta suspendida por falta de pago'
+        : 'Suscripción requerida para acceder a este recurso';
+      return res.status(403).json({ error: msg });
     }
   } catch {
     return res.status(401).json({ error: 'Error de autenticación' });

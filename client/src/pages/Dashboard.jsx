@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
 import { useAuth } from '../context/AuthContext';
 import CitaModal from '../components/CitaModal';
@@ -335,6 +335,12 @@ export default function Dashboard() {
   const { subscriptionStatus, refreshSubscription } = useAuth();
 
   // ── Agenda states ──────────────────────────────────────────────────────────
+  // Cadenero: redirige a /billing si la suscripción no está activa.
+  // subscriptionStatus===null significa que el AuthContext aún está cargando — no redirigir.
+  // El rol 'admin' nunca es bloqueado.
+  if (role !== 'admin' && subscriptionStatus !== null && subscriptionStatus !== 'active') {
+    return <Navigate to="/billing" replace />;
+  }
   const [appointments, setAppointments] = useState([]);
   const [blockedSlots, setBlockedSlots]  = useState([]);
   const [loading, setLoading]            = useState(true);
