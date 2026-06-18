@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link, Navigate } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
 import { useAuth } from '../context/AuthContext';
-import logoSvg from '../assets/logo-agendia.svg';
+import logoNavbarSvg from '../assets/logo-agendia-navbar.svg';
 import CitaModal from '../components/CitaModal';
 import PatientHistoryModal from '../components/PatientHistoryModal';
 import BotStatusWidget from '../components/BotStatusWidget';
@@ -521,7 +521,7 @@ export default function Dashboard() {
             style={{ background: '#1a1a2e' }}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
               <div className="flex flex-col gap-1">
-                <img src={logoSvg} alt="AgendIA Logo" className="h-8 w-auto brightness-0 invert" />
+                <img src={logoNavbarSvg} alt="AgendIA Logo" className="h-8 w-auto" />
                 <div className="text-gray-400 text-xs pl-0.5">Dr. {name}</div>
               </div>
               <button onClick={() => setDrawerOpen(false)} className="text-gray-400 text-2xl leading-none p-1 bg-transparent border-0 cursor-pointer">✕</button>
@@ -562,7 +562,7 @@ export default function Dashboard() {
       <div className="px-4 sm:px-6 h-16 flex items-center justify-between shadow-lg"
         style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
         <div className="flex items-center gap-4">
-          <img src={logoSvg} alt="AgendIA Logo" className="h-8 w-auto brightness-0 invert" />
+          <img src={logoNavbarSvg} alt="AgendIA Logo" className="h-8 w-auto" />
           <div className="w-px h-6 bg-white/20" />
           <div className="text-gray-300 text-sm">Dr. {name}</div>
         </div>

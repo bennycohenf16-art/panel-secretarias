@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API_BASE from '../utils/apiBase';
 import { useAuth } from '../context/AuthContext';
+import logoNavbarSvg from '../assets/logo-agendia-navbar.svg';
 
 function StatusBadge({ status, gracePeriodUntil }) {
   if (status === 'active') {
@@ -79,23 +80,34 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Panel de Administración</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Vista de suscripciones en tiempo real</p>
+      <div className="px-6 h-16 flex items-center justify-between shadow-lg"
+        style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
+        <div className="flex items-center gap-4">
+          <img src={logoNavbarSvg} alt="AgendIA Logo" className="h-8 w-auto" />
+          <div className="w-px h-6 bg-white/20" />
+          <div>
+            <div className="text-white text-sm font-semibold leading-none">Panel de Administración</div>
+            <div className="text-gray-400 text-xs mt-0.5">Suscripciones en tiempo real</div>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => nav('/')}
-            className="text-sm text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border-0"
+            className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer border-0 transition-colors"
+            style={{ background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.8)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.18)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; }}
           >
             ← Volver al panel
           </button>
           <button
             onClick={logout}
-            className="text-sm text-red-600 hover:text-red-800 font-medium transition-colors cursor-pointer bg-transparent border-0"
+            className="px-3 py-1.5 rounded-lg text-sm font-semibold cursor-pointer border border-white/20 transition-colors"
+            style={{ background: 'transparent', color: 'rgba(255,255,255,.7)' }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#fff'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,.7)'; }}
           >
-            Cerrar sesión
+            Salir
           </button>
         </div>
       </div>
