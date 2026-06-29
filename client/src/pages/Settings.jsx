@@ -321,12 +321,153 @@ function TabBot({ token }) {
   );
 }
 
+// ── Tab Preguntas ─────────────────────────────────────────────────────────────
+
+function TabPreguntas({ token }) {
+  const [questions, setQuestions] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [saving,    setSaving]    = useState(false);
+  const [status,    setStatus]    = useState({ type: '', msg: '' });
+
+  const fi = {
+    width: '100%', padding: '10px 12px', borderRadius: 8,
+    border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+    fontFamily: 'inherit',
+  };
+
+  useEffect(() => {
+    fetch(API_BASE + '/api/doctor/config/questions', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(data => setQuestions(data.map(q => ({ texto_pregunta: q.texto_pregunta, campo_destino: q.campo_destino }))))
+      .catch(() => setStatus({ type: 'error', msg: 'Error al cargar preguntas.' }))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const add = () => {
+    if (questions.length >= 20) return;
+    setQuestions(prev => [...prev, { texto_pregunta: '', campo_destino: '' }]);
+  };
+
+  const remove = (i) => setQuestions(prev => prev.filter((_, idx) => idx !== i));
+
+  const update = (i, field, val) =>
+    setQuestions(prev => prev.map((q, idx) => idx === i ? { ...q, [field]: val } : q));
+
+  const save = async () => {
+    setSaving(true);
+    setStatus({ type: '', msg: '' });
+    try {
+      const r = await fetch(API_BASE + '/api/doctor/config/questions', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify(questions),
+      });
+      const d = await r.json();
+      if (!r.ok) { setStatus({ type: 'error', msg: d.error || 'Error al guardar' }); return; }
+      setStatus({ type: 'success', msg: `Flujo guardado (${d.count} pregunta${d.count !== 1 ? 's' : ''}).` });
+    } catch {
+      setStatus({ type: 'error', msg: 'Error de conexión.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return (
+    <div className="py-12 text-center text-gray-400">
+      <div className="text-3xl mb-2">⏳</div><p className="text-sm">Cargando preguntas...</p>
+    </div>
+  );
+
+  return (
+    <div>
+      <h2 className="text-base font-bold text-gray-800 mb-1">Flujo de preguntas del bot</h2>
+      <p className="text-sm text-gray-500 mb-5" style={{ lineHeight: 1.6 }}>
+        El bot hará estas preguntas <strong>después</strong> de confirmar el nombre y teléfono del paciente,
+        y <strong>antes</strong> de pedir fecha y hora. Si está vacío, preguntará el motivo de consulta por defecto.
+      </p>
+
+      <Alert type={status.type} msg={status.msg} />
+
+      {questions.length === 0 && (
+        <div className="text-center text-gray-400 text-sm py-4 mb-4"
+          style={{ background: '#f9fafb', borderRadius: 10, border: '1.5px dashed #e5e7eb' }}>
+          Sin preguntas — el bot usará "¿Cuál es el motivo de tu consulta?" por defecto.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+        {questions.map((q, i) => (
+          <div key={i} style={{
+            display: 'flex', gap: 8, alignItems: 'flex-start',
+            background: '#f9fafb', borderRadius: 10, padding: '10px 12px',
+            border: '1.5px solid #e5e7eb',
+          }}>
+            <div style={{ color: '#9ca3af', fontSize: 12, fontWeight: 700, paddingTop: 12, flexShrink: 0, width: 20 }}>
+              {i + 1}.
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                style={fi}
+                placeholder="Pregunta (ej: ¿Cuál es el motivo de tu consulta?)"
+                value={q.texto_pregunta}
+                onChange={e => update(i, 'texto_pregunta', e.target.value)}
+                onFocus={e  => { e.target.style.borderColor = '#6366f1'; }}
+                onBlur={e   => { e.target.style.borderColor = '#e5e7eb'; }}
+              />
+              <input
+                style={{ ...fi, fontSize: 12, color: '#6b7280' }}
+                placeholder="campo destino (ej: motivo, especialidad, seguro)"
+                value={q.campo_destino}
+                onChange={e => update(i, 'campo_destino', e.target.value)}
+                onFocus={e  => { e.target.style.borderColor = '#6366f1'; }}
+                onBlur={e   => { e.target.style.borderColor = '#e5e7eb'; }}
+              />
+            </div>
+            <button
+              onClick={() => remove(i)}
+              style={{
+                background: '#fef2f2', border: '1.5px solid #fca5a5', color: '#dc2626',
+                borderRadius: 8, padding: '6px 10px', fontSize: 13, cursor: 'pointer', flexShrink: 0, marginTop: 2,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button
+          onClick={add}
+          disabled={questions.length >= 20}
+          className="px-5 py-2.5 text-sm font-semibold rounded-xl border cursor-pointer disabled:opacity-40"
+          style={{ background: '#f9fafb', borderColor: '#d1d5db', color: '#374151', borderStyle: 'dashed' }}
+        >
+          + Agregar pregunta
+        </button>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="px-6 py-2.5 rounded-xl font-bold text-sm cursor-pointer border-0 disabled:opacity-60"
+          style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)', color: '#fff',
+            boxShadow: '0 4px 14px rgba(99,102,241,.3)' }}
+        >
+          {saving ? 'Guardando...' : '💾 Guardar preguntas'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 const TABS = [
   { id: 'seguridad', label: '🔒 Seguridad' },
   { id: 'horarios',  label: '🗓 Horarios'  },
   { id: 'bot',       label: '🤖 Bot'       },
+  { id: 'preguntas', label: '💬 Preguntas' },
 ];
 
 export default function Settings() {
@@ -369,9 +510,10 @@ export default function Settings() {
       {/* Contenido */}
       <div className="max-w-3xl mx-auto px-4 py-6">
         <div className="bg-white rounded-2xl shadow-sm p-6">
-          {tab === 'seguridad' && <TabSeguridad token={token} />}
-          {tab === 'horarios'  && <TabHorarios  token={token} />}
-          {tab === 'bot'       && <TabBot        token={token} />}
+          {tab === 'seguridad'  && <TabSeguridad  token={token} />}
+          {tab === 'horarios'   && <TabHorarios   token={token} />}
+          {tab === 'bot'        && <TabBot         token={token} />}
+          {tab === 'preguntas'  && <TabPreguntas   token={token} />}
         </div>
       </div>
     </div>
