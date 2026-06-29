@@ -321,6 +321,171 @@ function TabBot({ token }) {
   );
 }
 
+// ── Tab Calendario ────────────────────────────────────────────────────────────
+
+function TabCalendario({ token }) {
+  const [gcal,          setGcal]          = useState(null);  // null = cargando
+  const [isConnecting,  setIsConnecting]  = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [toast,         setToast]         = useState(null);  // { msg, type }
+
+  // Detectar ?gcal=connected o ?gcal_error=... al volver del flujo OAuth
+  useEffect(() => {
+    const params  = new URLSearchParams(window.location.search);
+    const ok      = params.get('gcal');
+    const err     = params.get('gcal_error');
+    if (ok === 'connected') {
+      setToast({ msg: 'Google Calendar conectado correctamente.', type: 'success' });
+      window.history.replaceState({}, '', '/settings');
+    } else if (err) {
+      setToast({ msg: 'Error al conectar: ' + decodeURIComponent(err), type: 'error' });
+      window.history.replaceState({}, '', '/settings');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetch(API_BASE + '/api/doctor/config/gcal-status', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(setGcal)
+      .catch(() => setGcal({ connected: false }));
+  }, [token]);
+
+  const handleConnect = async () => {
+    setIsConnecting(true);
+    try {
+      const r    = await fetch(API_BASE + '/api/doctor/config/gcal-auth-url', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json();
+      if (!r.ok || !data.url) throw new Error(data.error || 'URL de autorización no recibida');
+      window.location.href = data.url;
+    } catch (e) {
+      setToast({ msg: 'No se pudo iniciar la conexión: ' + e.message, type: 'error' });
+      setIsConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('¿Desconectar Google Calendar?')) return;
+    setIsDisconnecting(true);
+    try {
+      const r = await fetch(API_BASE + '/api/doctor/config/gcal-disconnect', {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Error al desconectar');
+      setGcal({ connected: false });
+    } catch (e) {
+      setToast({ msg: e.message, type: 'error' });
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const connectedAt = gcal?.connectedAt
+    ? new Date(gcal.connectedAt).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
+
+  return (
+    <div>
+      <h2 className="text-base font-bold text-gray-800 mb-1">Integración de Agenda</h2>
+      <p className="text-sm text-gray-500 mb-5" style={{ lineHeight: 1.6 }}>
+        Conecta tu Google Calendar para que el bot cruce los horarios configurados con tus eventos reales
+        y cree automáticamente las citas como eventos de Google.
+      </p>
+
+      {toast && (
+        <div style={{
+          marginBottom: 16, padding: '10px 14px', borderRadius: 8, fontSize: 13,
+          background: toast.type === 'success' ? '#f0fdf4' : '#fef2f2',
+          border: `1px solid ${toast.type === 'success' ? '#86efac' : '#fca5a5'}`,
+          color:  toast.type === 'success' ? '#15803d'  : '#dc2626',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span>{toast.type === 'success' ? '✅ ' : '⚠️ '}{toast.msg}</span>
+          <button onClick={() => setToast(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16 }}>×</button>
+        </div>
+      )}
+
+      {gcal === null && (
+        <div className="py-8 text-center text-gray-400 text-sm">Verificando conexión...</div>
+      )}
+
+      {gcal?.connected && (
+        <>
+          <div style={{
+            background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10,
+            padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14,
+          }}>
+            <svg width="30" height="30" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
+              <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#166534' }}>Google Calendar activo</div>
+              <div style={{ color: '#555', fontSize: 12, marginTop: 2 }}>
+                Calendario: <strong>{gcal.calendarId || 'primary'}</strong>
+              </div>
+              {connectedAt && <div style={{ color: '#888', fontSize: 11, marginTop: 2 }}>Conectado el {connectedAt}</div>}
+            </div>
+          </div>
+
+          <button onClick={handleDisconnect} disabled={isDisconnecting}
+            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer border disabled:opacity-60"
+            style={{ background: isDisconnecting ? '#f9fafb' : '#fef2f2',
+              borderColor: '#fca5a5', color: isDisconnecting ? '#9ca3af' : '#dc2626' }}>
+            {isDisconnecting ? 'Desconectando...' : '⚠️ Desconectar Google Calendar'}
+          </button>
+        </>
+      )}
+
+      {gcal !== null && !gcal.connected && (
+        <>
+          <div style={{
+            display: 'flex', gap: 14, marginBottom: 18,
+            padding: 16, background: '#f8faff', borderRadius: 10, border: '1px solid #e0e8ff',
+          }}>
+            <div style={{ fontSize: 24, flexShrink: 0 }}>📆</div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: '#1a1a2e', marginBottom: 4 }}>
+                Conecta tu Google Calendar
+              </div>
+              <div style={{ color: '#666', fontSize: 13, lineHeight: 1.6 }}>
+                Las citas agendadas por WhatsApp aparecerán automáticamente en tu calendario de Google.
+              </div>
+            </div>
+          </div>
+
+          <button onClick={handleConnect} disabled={isConnecting}
+            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer border-0 disabled:opacity-60"
+            style={{
+              background: 'linear-gradient(135deg,#4f46e5,#6366f1)', color: '#fff',
+              boxShadow: '0 4px 14px rgba(99,102,241,.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            }}>
+            {isConnecting ? '⏳ Redirigiendo a Google...' : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
+                  <path fill="#fff" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#fff" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#fff" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                  <path fill="#fff" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                Conectar Google Calendar
+              </>
+            )}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Tab Preguntas ─────────────────────────────────────────────────────────────
 
 function TabPreguntas({ token }) {
@@ -464,10 +629,11 @@ function TabPreguntas({ token }) {
 // ── Página principal ──────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'seguridad', label: '🔒 Seguridad' },
-  { id: 'horarios',  label: '🗓 Horarios'  },
-  { id: 'bot',       label: '🤖 Bot'       },
-  { id: 'preguntas', label: '💬 Preguntas' },
+  { id: 'seguridad',  label: '🔒 Seguridad'  },
+  { id: 'horarios',   label: '🗓 Horarios'   },
+  { id: 'bot',        label: '🤖 Bot'        },
+  { id: 'calendario', label: '📅 Calendario' },
+  { id: 'preguntas',  label: '💬 Preguntas'  },
 ];
 
 export default function Settings() {
@@ -513,6 +679,7 @@ export default function Settings() {
           {tab === 'seguridad'  && <TabSeguridad  token={token} />}
           {tab === 'horarios'   && <TabHorarios   token={token} />}
           {tab === 'bot'        && <TabBot         token={token} />}
+          {tab === 'calendario' && <TabCalendario  token={token} />}
           {tab === 'preguntas'  && <TabPreguntas   token={token} />}
         </div>
       </div>

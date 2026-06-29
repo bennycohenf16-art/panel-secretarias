@@ -1337,6 +1337,61 @@ app.put('/api/doctor/config/instructions', auth, h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Google Calendar → bot-factory ────────────────────────────────────────────
+app.get('/api/doctor/config/gcal-status', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(400).json({ error: 'Doctor sin bot asignado' });
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY;
+  const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/gcal-status-by-slug`, {
+    headers: { 'x-internal-key': apiKey },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    return res.status(resp.status).json({ error: err.error || 'Error en bot-factory' });
+  }
+  res.json(await resp.json());
+}));
+
+app.get('/api/doctor/config/gcal-auth-url', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(400).json({ error: 'Doctor sin bot asignado' });
+  const baseUrl     = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey      = process.env.INTERNAL_API_KEY;
+  const panelUrl    = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const returnUrl   = `${panelUrl}/settings`;
+  const resp = await fetch(
+    `${baseUrl}/api/bots/${botSlug}/gcal-auth-url-by-slug?return_url=${encodeURIComponent(returnUrl)}`,
+    { headers: { 'x-internal-key': apiKey } }
+  );
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    return res.status(resp.status).json({ error: err.error || 'Error en bot-factory' });
+  }
+  res.json(await resp.json());
+}));
+
+app.delete('/api/doctor/config/gcal-disconnect', auth, h(async (req, res) => {
+  const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
+  if (!dr.rows.length) return res.status(404).json({ error: 'Doctor no encontrado' });
+  const botSlug = dr.rows[0].bot_slug;
+  if (!botSlug) return res.status(400).json({ error: 'Doctor sin bot asignado' });
+  const baseUrl = (process.env.BOT_FACTORY_URL || 'https://bot-factory-8amb.onrender.com').replace(/\/$/, '');
+  const apiKey  = process.env.INTERNAL_API_KEY;
+  const resp = await fetch(`${baseUrl}/api/bots/${botSlug}/gcal-disconnect-by-slug`, {
+    method: 'DELETE', headers: { 'x-internal-key': apiKey },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    return res.status(resp.status).json({ error: err.error || 'Error en bot-factory' });
+  }
+  res.json(await resp.json());
+}));
+
 // ── Preguntas del flujo dinámico → bot-factory ────────────────────────────────
 app.get('/api/doctor/config/questions', auth, h(async (req, res) => {
   const dr = await pool.query('SELECT bot_slug FROM doctors WHERE id=$1', [req.user.id]);
